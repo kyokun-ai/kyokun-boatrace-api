@@ -837,11 +837,79 @@ racers.forEach((racer, index) => {
     // 成功
     // ========================================
 
-    return res.json({
+    return 
+    // ========================================
+    // STEP2-3A DEBUG
+    // 直前情報(beforeinfo)の実HTML構造を確認
+    // ========================================
+    const beforeInfoUrl =
+      `https://www.boatrace.jp/owpc/pc/race/beforeinfo?hd=${date}&jcd=${jcd}&rno=${rno}`;
+
+    let debugBeforeInfo = null;
+
+    try {
+      const beforeHtml = await officialFetch(beforeInfoUrl);
+      const $before = cheerio.load(beforeHtml);
+
+      const rows = [];
+      $before('tr').each((rowIndex, tr) => {
+        const cells = [];
+        $before(tr).children('th,td').each((cellIndex, cell) => {
+          const $cell = $before(cell);
+          cells.push({
+            cellIndex,
+            tag: cell.tagName || cell.name || '',
+            text: clean($cell.text()),
+            colspan: Number($cell.attr('colspan')) || 1,
+            rowspan: Number($cell.attr('rowspan')) || 1,
+            className: $cell.attr('class') || ''
+          });
+        });
+
+        if (cells.length) rows.push({ rowIndex, cells });
+      });
+
+      const keywords = [
+        '展示', 'チルト', '調整重量', '気温', '水温',
+        '風向', '風速', '波高', '部品', 'プロペラ'
+      ];
+
+      const keywordElements = [];
+      $before('body *').each((elementIndex, el) => {
+        const $el = $before(el);
+        const ownText = clean(
+          $el.clone().children().remove().end().text()
+        );
+
+        if (ownText && keywords.some(k => ownText.includes(k))) {
+          keywordElements.push({
+            elementIndex,
+            tag: el.tagName || el.name || '',
+            text: ownText,
+            className: $el.attr('class') || '',
+            id: $el.attr('id') || ''
+          });
+        }
+      });
+
+      debugBeforeInfo = {
+        url: beforeInfoUrl,
+        rows,
+        keywordElements: keywordElements.slice(0, 200)
+      };
+    } catch (error) {
+      debugBeforeInfo = {
+        url: beforeInfoUrl,
+        error: error.message
+      };
+    }
+
+res.json({
+      debugBeforeInfo,
 
       ok: true,
 
-      version: '1.5-step2-2b-safe',
+      version: '1.6-step2-3a-debug',
 
       source: url,
 

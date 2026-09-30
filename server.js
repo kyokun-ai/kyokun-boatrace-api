@@ -8,7 +8,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// 今まで通りトップページのHTMLも表示
+// index.htmlを表示
 app.use(express.static('.'));
 
 const clean = s => (s ?? '')
@@ -16,162 +16,35 @@ const clean = s => (s ?? '')
   .replace(/\s+/g, ' ')
   .trim();
 
-const officialFetch = async url => {
-  const r = await fetch(url, {
+
+// ========================================
+// BOATRACE公式ページ取得
+// ========================================
+
+async function officialFetch(url) {
+
+  const response = await fetch(url, {
     headers: {
-      'user-agent': 'Mozilla/5.0 KyokunResearch/0.5',
+      'user-agent': 'Mozilla/5.0 KyokunResearch/0.6',
       'accept-language': 'ja,en;q=0.8'
     }
   });
 
-  if (!r.ok) {
-    throw new Error(`official HTTP ${r.status}`);
+  if (!response.ok) {
+    throw new Error(`official HTTP ${response.status}`);
   }
 
-  return await r.text();
-};
-
-
-// ======================================================
-// STEP2-1
-// 選手ごとのコース別成績を取得
-// 失敗しても /api/race 全体は壊さない
-// ======================================================
-
-async function fetchCourseStats(registration) {
-
-  const url =
-    `https://www.boatrace.jp/owpc/pc/data/racersearch/course?toban=${registration}`;
-
-  try {
-
-    const html = await officialFetch(url);
-    const $ = cheerio.load(html);
-
-    const text = clean($('body').text());
-
-    const section = (startLabel, endLabel) => {
-
-      const start = text.indexOf(startLabel);
-
-      if (start < 0) return '';
-
-      const from = start + startLabel.length;
-
-      const end = endLabel
-        ? text.indexOf(endLabel, from)
-        : -1;
-
-      return text.slice(
-        from,
-        end >= 0 ? end : undefined
-      );
-    };
-
-
-    // 1～6コースの値を取り出す
-    const sixValues = s => {
-
-      const out = Array(6).fill(null);
-
-      const re =
-        /(?:^|\s)([1-6])\s+(-|\d+(?:\.\d+)?)\s*%?/g;
-
-      let m;
-
-      while ((m = re.exec(s))) {
-
-        out[Number(m[1]) - 1] =
-          m[2] === '-'
-            ? null
-            : Number(m[2]);
-      }
-
-      return out;
-    };
-
-
-    // コース別進入率
-    const entry = sixValues(
-      section(
-        'コース別進入率',
-        'コース別3連対率'
-      )
-    );
-
-
-    // コース別3連対率
-    const trio = sixValues(
-      section(
-        'コース別3連対率',
-        'コース別平均スタートタイミング'
-      )
-    );
-
-
-    // コース別平均ST
-    const avgST = sixValues(
-      section(
-        'コース別平均スタートタイミング',
-        'コース別スタート順'
-      )
-    );
-
-
-    // コース別平均スタート順位
-    const startRank = sixValues(
-      section(
-        'コース別スタート順',
-        '集計期間内にデータがない場合'
-      )
-    );
-
-
-    const courses = {};
-
-    for (let i = 0; i < 6; i++) {
-
-      courses[String(i + 1)] = {
-
-        entryRate: entry[i],
-
-        trioRate: trio[i],
-
-        avgST: avgST[i],
-
-        avgStartRank: startRank[i]
-      };
-    }
-
-
-    return {
-      source: url,
-      courses
-    };
-
-  } catch (e) {
-
-    return {
-      source: url,
-      error: String(e.message || e),
-      courses: null
-    };
-  }
+  return await response.text();
 }
 
 
-
-// ======================================================
-// 出走表API
-// ======================================================
+// ========================================
+// API
+// ========================================
 
 app.get('/api/race', async (req, res) => {
 
-  const {
-    date,
-    jcd,
-    rno
-  } = req.query;
+  const { date, jcd, rno } = req.query;
 
 
   if (
@@ -181,12 +54,11 @@ app.get('/api/race', async (req, res) => {
   ) {
 
     return res.status(400).json({
-
       ok: false,
-
       error:
         'date(YYYYMMDD), jcd(01-24), rno(1-12) are required'
     });
+
   }
 
 
@@ -203,103 +75,193 @@ app.get('/api/race', async (req, res) => {
     const racers = [];
 
 
+    // ========================================
+    // STEP1で成功していた方式
+    //
+    // 「枠番＋登録番号」を同時に探さない。
+    // 登録番号 / 級別 を持つセルから選手を特定。
+    // ========================================
+
     $('tr').each((_, tr) => {
 
       if (racers.length >= 6) return;
 
 
-      const t = clean($(tr).text());
+      const cells = $(tr)
+        .find('td')
+        .map((_, td) => clean($(td).text()))
+        .get();
 
 
-      const head = t.match(
-        /(?:^|\s)([1-6])\s+(\d{4})\s*\/\s*(A1|A2|B1|B2)\s+/
+      if (!cells.length) return;
+
+
+      // 登録番号 / 級別 が入っているセルを探す
+      const racerCellIndex = cells.findIndex(cell =>
+        /\d{4}\s*\/\s*(A1|A2|B1|B2)/.test(cell)
+      );
+
+
+      if (racerCellIndex < 0) return;
+
+
+      const racerCell = cells[racerCellIndex];
+
+
+      const head = racerCell.match(
+        /(\d{4})\s*\/\s*(A1|A2|B1|B2)\s+(.+?)\s+([^\/\s]+)\/([^\s]+)\s+(\d+)歳\/([\d.]+)kg/
       );
 
 
       if (!head) return;
 
 
-      const lane =
-        Number(head[1]);
+      const registration = head[1];
 
-      const registration =
-        head[2];
+      const rank = head[2];
 
-      const rank =
-        head[3];
+      const name = clean(head[3]);
+
+      const branch = clean(head[4]);
+
+      const birthplace = clean(head[5]);
+
+      const age = Number(head[6]);
+
+      const weight = Number(head[7]);
 
 
-      const after =
-        t.slice(
-          t.indexOf(registration) +
-          registration.length
+      // ========================================
+      // 枠番
+      // 登録番号セルより前のセルから1〜6を探す
+      // ========================================
+
+      let lane = null;
+
+
+      for (let i = 0; i < racerCellIndex; i++) {
+
+        if (/^[1-6]$/.test(cells[i])) {
+
+          lane = Number(cells[i]);
+
+          break;
+        }
+
+      }
+
+
+      // 枠番セルが取れない場合は
+      // 選手の出現順を使用
+      if (lane === null) {
+
+        lane = racers.length + 1;
+
+      }
+
+
+      // ========================================
+      // F / L / 平均ST
+      // ========================================
+
+      let F = 0;
+
+      let L = 0;
+
+      let avgST = null;
+
+      let flIndex = -1;
+
+
+      for (
+        let i = racerCellIndex + 1;
+        i < cells.length;
+        i++
+      ) {
+
+        const m = cells[i].match(
+          /F(\d+)\s+L(\d+)\s+([0-9.]+|-)/
         );
 
 
-      const main = after.match(
-        /^\s*\/\s*(A1|A2|B1|B2)\s+(.+?)\s+([^\/\s]+)\/([^\s]+)\s+(\d+)歳\/([\d.]+)kg\s+F(\d+)\s+L(\d+)\s+([0-9.]+|-)\s+/
-      );
+        if (m) {
+
+          F = Number(m[1]);
+
+          L = Number(m[2]);
+
+          avgST =
+            m[3] === '-'
+              ? null
+              : Number(m[3]);
+
+          flIndex = i;
+
+          break;
+        }
+
+      }
 
 
-      if (!main) return;
+      // ========================================
+      // 全国 / 当地 / モーター / ボート
+      // ========================================
+
+      const numberGroups = [];
 
 
-      const name =
-        clean(main[2]);
+      if (flIndex >= 0) {
 
-      const branch =
-        clean(main[3]);
+        for (
+          let i = flIndex + 1;
+          i < cells.length;
+          i++
+        ) {
 
-      const birthplace =
-        clean(main[4]);
-
-      const age =
-        Number(main[5]);
-
-      const weight =
-        Number(main[6]);
-
-      const F =
-        Number(main[7]);
-
-      const L =
-        Number(main[8]);
-
-      const avgST =
-        main[9] === '-'
-          ? null
-          : Number(main[9]);
+          const nums = (
+            cells[i].match(
+              /-|\d+(?:\.\d+)?/g
+            ) || []
+          );
 
 
-      const marker =
-        `F${F} L${L} ${main[9]}`;
+          if (nums.length >= 3) {
+
+            numberGroups.push(nums);
+
+          }
 
 
-      const pos =
-        t.indexOf(marker);
+          if (numberGroups.length >= 4) {
+
+            break;
+
+          }
+
+        }
+
+      }
 
 
-      const rest =
-        pos >= 0
-          ? t.slice(pos + marker.length)
-          : '';
+      const n = (group, index) => {
+
+        const value =
+          numberGroups[group]?.[index];
 
 
-      const vals =
-        (
-          rest.match(
-            /(?:^|\s)(-|\d+(?:\.\d+)?)(?=\s|$)/g
-          ) || []
-        )
-        .map(v => v.trim())
-        .slice(0, 12);
+        if (
+          value === undefined ||
+          value === '-'
+        ) {
+
+          return null;
+
+        }
 
 
-      const v = i =>
-        vals[i] === '-' ||
-        vals[i] == null
-          ? null
-          : Number(vals[i]);
+        return Number(value);
+
+      };
 
 
       racers.push({
@@ -329,41 +291,45 @@ app.get('/api/race', async (req, res) => {
 
         national: {
 
-          winRate: v(0),
+          winRate: n(0, 0),
 
-          quinellaRate: v(1),
+          quinellaRate: n(0, 1),
 
-          trioRate: v(2)
+          trioRate: n(0, 2)
+
         },
 
 
         local: {
 
-          winRate: v(3),
+          winRate: n(1, 0),
 
-          quinellaRate: v(4),
+          quinellaRate: n(1, 1),
 
-          trioRate: v(5)
+          trioRate: n(1, 2)
+
         },
 
 
         motor: {
 
-          no: v(6),
+          no: n(2, 0),
 
-          quinellaRate: v(7),
+          quinellaRate: n(2, 1),
 
-          trioRate: v(8)
+          trioRate: n(2, 2)
+
         },
 
 
         boat: {
 
-          no: v(9),
+          no: n(3, 0),
 
-          quinellaRate: v(10),
+          quinellaRate: n(3, 1),
 
-          trioRate: v(11)
+          trioRate: n(3, 2)
+
         }
 
       });
@@ -372,10 +338,13 @@ app.get('/api/race', async (req, res) => {
 
 
     racers.sort(
-      (a, b) =>
-        a.lane - b.lane
+      (a, b) => a.lane - b.lane
     );
 
+
+    // ========================================
+    // 安全チェック
+    // ========================================
 
     if (racers.length !== 6) {
 
@@ -384,11 +353,7 @@ app.get('/api/race', async (req, res) => {
         ok: false,
 
         error:
-          racers.length === 0
-
-            ? 'No 6-racer entry table found. The venue may be non-racing today, or the official page structure changed.'
-
-            : `Racer extraction incomplete: ${racers.length}/6`,
+          `Racer extraction incomplete: ${racers.length}/6`,
 
         source: url,
 
@@ -399,51 +364,21 @@ app.get('/api/race', async (req, res) => {
         rno: Number(rno),
 
         racers
+
       });
+
     }
 
 
+    // ========================================
+    // 成功
+    // ========================================
 
-    // ==================================================
-    // 6選手のコース別データを並列取得
-    // ==================================================
-
-    const courseResults =
-      await Promise.all(
-
-        racers.map(
-          r =>
-            fetchCourseStats(
-              r.registration
-            )
-        )
-
-      );
-
-
-    racers.forEach((r, i) => {
-
-      r.courseStats =
-        courseResults[i]?.courses
-        ?? null;
-
-
-      if (courseResults[i]?.error) {
-
-        r.courseStatsError =
-          courseResults[i].error;
-      }
-
-    });
-
-
-
-    res.json({
+    return res.json({
 
       ok: true,
 
-      version:
-        '0.5-step2-1',
+      version: '0.6-step1-recovery',
 
       source: url,
 
@@ -451,8 +386,7 @@ app.get('/api/race', async (req, res) => {
 
       jcd,
 
-      rno:
-        Number(rno),
+      rno: Number(rno),
 
       racers
 
@@ -461,14 +395,13 @@ app.get('/api/race', async (req, res) => {
 
   } catch (e) {
 
-    res.status(502).json({
+    return res.status(502).json({
 
       ok: false,
 
-      error:
-        String(
-          e.message || e
-        ),
+      error: String(
+        e.message || e
+      ),
 
       source: url
 
@@ -479,6 +412,9 @@ app.get('/api/race', async (req, res) => {
 });
 
 
+// ========================================
+// SERVER
+// ========================================
 
 const port =
   process.env.PORT || 3000;
@@ -488,6 +424,6 @@ app.listen(
   port,
   () =>
     console.log(
-      `Kyokun API STEP2-1 on ${port}`
+      `Kyokun API v0.6 running on ${port}`
     )
 );

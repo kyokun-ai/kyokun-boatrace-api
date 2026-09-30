@@ -887,9 +887,8 @@ const port =
 
 
 // ============================================================
-// STEP2-3A v1.7
-// 直前情報専用API
-// /api/race とは完全分離し、beforeinfoだけを取得する。
+// STEP2-3A v1.8
+// 直前情報専用API・正式JSON化
 // ============================================================
 app.get('/api/beforeinfo', async (req, res) => {
   try {
@@ -913,53 +912,145 @@ app.get('/api/beforeinfo', async (req, res) => {
     const html = await officialFetch(source);
     const $ = cheerio.load(html);
 
-    // DEBUGはtableだけ。選手コース別ページ等は一切取得しない。
-    const tables = [];
+    const toNumber = (value) => {
+      const m = String(value ?? '').replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+      return m ? Number(m[0]) : null;
+    };
 
-    $('table').each((tableIndex, table) => {
-      const rows = [];
+    const normalizeFinish = (value) => {
+      const z = String(value ?? '').trim()
+        .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+      const n = Number(z);
+      return Number.isInteger(n) && n >= 1 && n <= 6 ? n : null;
+    };
 
-      $(table).find('tr').each((rowIndex, tr) => {
-        const cells = [];
-
-        $(tr).children('th,td').each((cellIndex, cell) => {
-          const $cell = $(cell);
-          cells.push({
-            cellIndex,
-            tag: cell.tagName || cell.name || '',
-            text: clean($cell.text()),
-            colspan: Number($cell.attr('colspan')) || 1,
-            rowspan: Number($cell.attr('rowspan')) || 1
-          });
-        });
-
-        if (cells.length) rows.push({ rowIndex, cells });
-      });
-
-      if (rows.length) {
-        tables.push({
-          tableIndex,
-          className: $(table).attr('class') || '',
-          rows: rows.slice(0, 35)
-        });
+    // ---- Racer before-info table ----
+    let racerTable = null;
+    $('table').each((_, table) => {
+      const header = clean($(table).text());
+      if (!racerTable && header.includes('展示タイム') && header.includes('チルト')) {
+        racerTable = table;
       }
     });
 
+    const racers = [];
+
+    if (racerTable) {
+      const rows = $(racerTable).find('tr').toArray();
+
+      for (let i = 0; i < rows.length; i++) {
+        const cells = $(rows[i]).children('td').toArray().map(td => clean($(td).text()));
+
+        // Main racer row begins with lane number and contains exhibition/tilt.
+        const lane = Number(cells[0]);
+        if (!Number.isInteger(lane) || lane < 1 || lane > 6 || cells.length < 8) continue;
+
+        const next1 = rows[i + 1]
+          ? $(rows[i + 1]).children('td').toArray().map(td => clean($(td).text()))
+          : [];
+        const next2 = rows[i + 2]
+          ? $(rows[i + 2]).children('td').toArray().map(td => clean($(td).text()))
+          : [];
+        const next3 = rows[i + 3]
+          ? $(rows[i + 3]).children('td').toArray().map(td => clean($(td).text()))
+          : [];
+
+        const previousRaceNo = toNumber(cells[9]);
+        const previousCourse = toNumber(next1[1]);
+        const previousStRaw = next2[2] || '';
+        const previousFinishRaw = next3[1] || '';
+
+        let previousSt = null;
+        let previousFlying = false;
+        if (previousStRaw) {
+          previousFlying = /^F/i.test(previousStRaw);
+          const stNum = toNumber(previousStRaw);
+          previousSt = stNum;
+        }
+
+        const previousRace =
+          previousRaceNo != null
+            ? {
+                raceNo: previousRaceNo,
+                course: previousCourse,
+                st: previousSt,
+                flying: previousFlying,
+                finish: normalizeFinish(previousFinishRaw),
+                finishCode:
+                  normalizeFinish(previousFinishRaw) == null && previousFinishRaw
+                    ? previousFinishRaw
+                    : null
+              }
+            : null;
+
+        racers.push({
+          lane,
+          name: cells[2] || null,
+          weight: toNumber(cells[3]),
+          exhibitionTime: toNumber(cells[4]),
+          tilt: toNumber(cells[5]),
+          propeller: cells[6] || null,
+          partsExchange: cells[7] || null,
+          adjustWeight: toNumber(next2[0]),
+          previousRace
+        });
+      }
+    }
+
+    // ---- Start exhibition table ----
+    let startTable = null;
+    $('table').each((_, table) => {
+      const header = clean($(table).text());
+      if (!startTable && header.includes('スタート展示') && header.includes('コース')) {
+        startTable = table;
+      }
+    });
+
+    const startExhibition = [];
+
+    if (startTable) {
+      $(startTable).find('tr').each((_, tr) => {
+        const text = clean($(tr).text());
+        // Examples: "1 .13", "4 F.01"
+        const m = text.match(/^([1-6])\s+(F)?\.?(\d{1,2})$/i);
+        if (!m) return;
+
+        const course = Number(m[1]);
+        const flying = Boolean(m[2]);
+        const st = Number(`0.${m[3].padStart(2, '0')}`);
+
+        startExhibition.push({
+          course,
+          lane: course, // Current official text exposes course order here.
+          st,
+          flying,
+          raw: text
+        });
+      });
+    }
+
+    const entryOrder = startExhibition.map(x => x.lane);
+    const isWakunari =
+      entryOrder.length === 6 &&
+      entryOrder.every((lane, index) => lane === index + 1);
+
     res.json({
       ok: true,
-      version: '1.7-step2-3a-split-debug',
+      version: '1.8-step2-3a-parsed',
       source,
       date,
       jcd,
       rno,
-      tableCount: tables.length,
-      tables: tables.slice(0, 15)
+      racers,
+      startExhibition,
+      entryOrder,
+      isWakunari
     });
   } catch (error) {
     console.error('beforeinfo error:', error);
     res.status(500).json({
       ok: false,
-      version: '1.7-step2-3a-split-debug',
+      version: '1.8-step2-3a-parsed',
       error: error.message
     });
   }

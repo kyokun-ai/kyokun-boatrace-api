@@ -959,12 +959,30 @@ racers.forEach(racer => {
 
   racer.preInspection = pre
     ? {
+        // Prediction-use fields from the rankingmotor page.
         time: pre.time,
-        timeRank: pre.timeRank,
-        motorNo: pre.motorNo,
-        motorQuinellaRate: pre.motorQuinellaRate,
-        boatNo: pre.boatNo,
-        boatQuinellaRate: pre.boatQuinellaRate
+        timeRank: pre.timeRank
+      }
+    : null;
+
+  // Equipment values from rankingmotor are verification-only.
+  // Never overwrite the race-list motor/boat values when they disagree.
+  racer.equipmentCheck = pre
+    ? {
+        motorMatched:
+          racer.motor?.no != null &&
+          pre.motorNo != null
+            ? Number(racer.motor.no) === Number(pre.motorNo)
+            : null,
+        boatMatched:
+          racer.boat?.no != null &&
+          pre.boatNo != null
+            ? Number(racer.boat.no) === Number(pre.boatNo)
+            : null,
+        sourceMotorNo: pre.motorNo,
+        sourceMotorQuinellaRate: pre.motorQuinellaRate,
+        sourceBoatNo: pre.boatNo,
+        sourceBoatQuinellaRate: pre.boatQuinellaRate
       }
     : null;
 });
@@ -979,7 +997,7 @@ racers.forEach(racer => {
 
       ok: true,
 
-      version: '2.2-step2-4-preinspection',
+      version: '2.3-step2-4-safecheck',
 
       source: url,
 

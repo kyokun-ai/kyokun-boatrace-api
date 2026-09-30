@@ -913,8 +913,15 @@ app.get('/api/beforeinfo', async (req, res) => {
     const $ = cheerio.load(html);
 
     const toNumber = (value) => {
-      const m = String(value ?? '').replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
-      return m ? Number(m[0]) : null;
+      const text = String(value ?? '').replace(/,/g, '').trim();
+      const m = text.match(/-?(?:\d+(?:\.\d+)?|\.\d+)/);
+      if (!m) return null;
+      const normalized = m[0].startsWith('-.')
+        ? m[0].replace('-.', '-0.')
+        : m[0].startsWith('.')
+          ? `0${m[0]}`
+          : m[0];
+      return Number(normalized);
     };
 
     const normalizeFinish = (value) => {
@@ -1021,7 +1028,7 @@ app.get('/api/beforeinfo', async (req, res) => {
 
         startExhibition.push({
           course,
-          lane: course, // Current official text exposes course order here.
+          lane: null,
           st,
           flying,
           raw: text
@@ -1029,14 +1036,17 @@ app.get('/api/beforeinfo', async (req, res) => {
       });
     }
 
-    const entryOrder = startExhibition.map(x => x.lane);
-    const isWakunari =
-      entryOrder.length === 6 &&
-      entryOrder.every((lane, index) => lane === index + 1);
+    // IMPORTANT:
+    // beforeinfo table text verified so far gives course + ST.
+    // Boat/lane identity during changed entry has not yet been verified,
+    // so do not fabricate an entry order.
+    const entryOrder = null;
+    const isWakunari = null;
+    const entryMappingVerified = false;
 
     res.json({
       ok: true,
-      version: '1.8-step2-3a-parsed',
+      version: '1.9-step2-3a-stfix',
       source,
       date,
       jcd,
@@ -1044,13 +1054,14 @@ app.get('/api/beforeinfo', async (req, res) => {
       racers,
       startExhibition,
       entryOrder,
-      isWakunari
+      isWakunari,
+      entryMappingVerified
     });
   } catch (error) {
     console.error('beforeinfo error:', error);
     res.status(500).json({
       ok: false,
-      version: '1.8-step2-3a-parsed',
+      version: '1.9-step2-3a-stfix',
       error: error.message
     });
   }

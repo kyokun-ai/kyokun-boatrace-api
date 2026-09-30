@@ -287,6 +287,356 @@ async function fetchCourseStats(registration) {
 }
 
 // ========================================
+// STEP2-2A 今節成績
+// ========================================
+
+function extractCurrentMeet($, tr) {
+
+  try {
+
+    const cells = $(tr)
+      .find('td')
+      .map((_, td) => clean($(td).text()))
+      .get();
+
+    const racerCellIndex = cells.findIndex(cell =>
+      /\d{4}\s*\/\s*(A1|A2|B1|B2)/.test(cell)
+    );
+
+    if (racerCellIndex < 0) {
+      return {
+        races: [],
+        avgST: null
+      };
+    }
+
+
+    // ========================================
+    // F/L/ST のセルを探す
+    // ========================================
+
+    let flIndex = -1;
+
+    for (
+      let i = racerCellIndex + 1;
+      i < cells.length;
+      i++
+    ) {
+
+      if (
+        /F\d+\s+L\d+\s+([0-9.]+|-)/.test(cells[i])
+      ) {
+
+        flIndex = i;
+        break;
+
+      }
+
+    }
+
+
+    if (flIndex < 0) {
+      return {
+        races: [],
+        avgST: null
+      };
+    }
+
+
+    // ========================================
+    // 全国 / 当地 / モーター / ボート
+    // の4セルを飛ばす
+    // ========================================
+
+    let groupsFound = 0;
+    let historyStart = -1;
+
+    for (
+      let i = flIndex + 1;
+      i < cells.length;
+      i++
+    ) {
+
+      const nums =
+        cells[i].match(
+          /-|\d+(?:\.\d+)?/g
+        ) || [];
+
+      if (nums.length >= 3) {
+
+        groupsFound++;
+
+        if (groupsFound === 4) {
+          historyStart = i + 1;
+          break;
+        }
+
+      }
+
+    }
+
+
+    if (historyStart < 0) {
+      return {
+        races: [],
+        avgST: null
+      };
+    }
+
+
+    // ========================================
+    // 今節成績部分
+    //
+    // 公式表は
+    // ① レースNo
+    // ② 進入コース
+    // ③ ST
+    // ④ 着順
+    //
+    // の4段
+    // ========================================
+
+    const historyCells =
+      cells
+        .slice(historyStart)
+        .filter(v => v !== '');
+
+
+    const rows = historyCells
+      .map(text =>
+        text
+          .split(/\s+/)
+          .map(v => clean(v))
+          .filter(Boolean)
+      )
+      .filter(row => row.length > 0);
+
+
+    // ========================================
+    // 4段構造を探す
+    // ========================================
+
+    let raceNos = null;
+    let courses = null;
+    let sts = null;
+    let finishes = null;
+
+
+    for (
+      let i = 0;
+      i <= rows.length - 4;
+      i++
+    ) {
+
+      const a = rows[i];
+      const b = rows[i + 1];
+      const c = rows[i + 2];
+      const d = rows[i + 3];
+
+
+      const looksRaceNo =
+        a.some(v =>
+          /^(?:[1-9]|1[0-2])$/.test(v)
+        );
+
+      const looksCourse =
+        b.some(v =>
+          /^[1-6]$/.test(v)
+        );
+
+      const looksST =
+        c.some(v =>
+          /^F?\d*\.\d+$/.test(v)
+        );
+
+      const looksFinish =
+        d.some(v =>
+          /^[1-6]$|^[エ妨失欠転沈不落]$/.test(v)
+        );
+
+
+      if (
+        looksRaceNo &&
+        looksCourse &&
+        looksST &&
+        looksFinish
+      ) {
+
+        raceNos = a;
+        courses = b;
+        sts = c;
+        finishes = d;
+
+        break;
+
+      }
+
+    }
+
+
+    if (
+      !raceNos ||
+      !courses ||
+      !sts ||
+      !finishes
+    ) {
+
+      return {
+        races: [],
+        avgST: null
+      };
+
+    }
+
+
+    // ========================================
+    // 最大件数に合わせて組み立て
+    // ========================================
+
+    const count = Math.min(
+      raceNos.length,
+      courses.length,
+      sts.length,
+      finishes.length
+    );
+
+
+    const races = [];
+
+
+    for (let i = 0; i < count; i++) {
+
+      const raceNoText = raceNos[i];
+      const courseText = courses[i];
+      const stText = sts[i];
+      const finishText = finishes[i];
+
+
+      if (
+        !/^(?:[1-9]|1[0-2])$/.test(raceNoText)
+      ) {
+        continue;
+      }
+
+
+      if (
+        !/^[1-6]$/.test(courseText)
+      ) {
+        continue;
+      }
+
+
+      let st = null;
+      let flying = false;
+
+
+      if (/^F/.test(stText)) {
+
+        flying = true;
+
+        const n =
+          Number(
+            stText.replace('F', '')
+          );
+
+        if (Number.isFinite(n)) {
+          st = -n;
+        }
+
+      } else {
+
+        const n = Number(stText);
+
+        if (Number.isFinite(n)) {
+          st = n;
+        }
+
+      }
+
+
+      let finish = null;
+      let finishCode = null;
+
+
+      if (/^[1-6]$/.test(finishText)) {
+
+        finish = Number(finishText);
+
+      } else {
+
+        finishCode = finishText;
+
+      }
+
+
+      races.push({
+
+        raceNo: Number(raceNoText),
+
+        course: Number(courseText),
+
+        st,
+
+        flying,
+
+        finish,
+
+        finishCode
+
+      });
+
+    }
+
+
+    // ========================================
+    // 今節平均ST
+    // Fは平均計算から除外
+    // ========================================
+
+    const validSTs =
+      races
+        .filter(r =>
+          r.st !== null &&
+          !r.flying
+        )
+        .map(r => r.st);
+
+
+    const avgST =
+      validSTs.length
+        ? Number(
+            (
+              validSTs.reduce(
+                (sum, value) =>
+                  sum + value,
+                0
+              ) / validSTs.length
+            ).toFixed(3)
+          )
+        : null;
+
+
+    return {
+      races,
+      avgST
+    };
+
+
+  } catch (e) {
+
+    return {
+      races: [],
+      avgST: null,
+      error: String(
+        e.message || e
+      )
+    };
+
+  }
+
+}
+
+// ========================================
 // API
 // ========================================
 
@@ -511,7 +861,9 @@ app.get('/api/race', async (req, res) => {
 
       };
 
-
+      const currentMeet =
+        extractCurrentMeet($, tr);
+      
       racers.push({
 
         lane,
@@ -536,7 +888,8 @@ app.get('/api/race', async (req, res) => {
 
         avgST,
 
-
+        currentMeet,
+        
         national: {
 
           winRate: n(0, 0),
@@ -662,7 +1015,7 @@ racers.forEach((racer, index) => {
 
       ok: true,
 
-      version: '0.9-step2-1-fix2',
+      version: '1.0-step2-2a',
 
       source: url,
 

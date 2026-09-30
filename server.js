@@ -287,21 +287,60 @@ async function fetchCourseStats(registration) {
 }
 
 // ========================================
-// STEP2-2A 今節成績
+// STEP2-2A 今節成績 v1.1
 // ========================================
 
 function extractCurrentMeet($, tr) {
 
   try {
 
-    const cells = $(tr)
+    // 選手本体行
+    const mainCells = $(tr)
       .find('td')
       .map((_, td) => clean($(td).text()))
       .get();
 
-    const racerCellIndex = cells.findIndex(cell =>
-      /\d{4}\s*\/\s*(A1|A2|B1|B2)/.test(cell)
-    );
+    // 今節成績は次の3行に続く
+    const courseRow = $(tr).next('tr');
+    const stRow = courseRow.next('tr');
+    const finishRow = stRow.next('tr');
+
+    if (
+      !courseRow.length ||
+      !stRow.length ||
+      !finishRow.length
+    ) {
+      return {
+        races: [],
+        avgST: null
+      };
+    }
+
+
+    const courseCells = courseRow
+      .find('td')
+      .map((_, td) => clean($(td).text()))
+      .get();
+
+    const stCells = stRow
+      .find('td')
+      .map((_, td) => clean($(td).text()))
+      .get();
+
+    const finishCells = finishRow
+      .find('td')
+      .map((_, td) => clean($(td).text()))
+      .get();
+
+
+    // ========================================
+    // 選手本体行の後半からレースNoを取得
+    // ========================================
+
+    const racerCellIndex =
+      mainCells.findIndex(cell =>
+        /\d{4}\s*\/\s*(A1|A2|B1|B2)/.test(cell)
+      );
 
     if (racerCellIndex < 0) {
       return {
@@ -311,25 +350,22 @@ function extractCurrentMeet($, tr) {
     }
 
 
-    // ========================================
-    // F/L/ST のセルを探す
-    // ========================================
-
+    // F/L/STセル
     let flIndex = -1;
 
     for (
       let i = racerCellIndex + 1;
-      i < cells.length;
+      i < mainCells.length;
       i++
     ) {
 
       if (
-        /F\d+\s+L\d+\s+([0-9.]+|-)/.test(cells[i])
+        /F\d+\s+L\d+\s+([0-9.]+|-)/.test(
+          mainCells[i]
+        )
       ) {
-
         flIndex = i;
         break;
-
       }
 
     }
@@ -343,22 +379,19 @@ function extractCurrentMeet($, tr) {
     }
 
 
-    // ========================================
-    // 全国 / 当地 / モーター / ボート
-    // の4セルを飛ばす
-    // ========================================
-
+    // 全国・当地・モーター・ボートの
+    // 4グループを通過
     let groupsFound = 0;
     let historyStart = -1;
 
     for (
       let i = flIndex + 1;
-      i < cells.length;
+      i < mainCells.length;
       i++
     ) {
 
       const nums =
-        cells[i].match(
+        mainCells[i].match(
           /-|\d+(?:\.\d+)?/g
         ) || [];
 
@@ -385,135 +418,48 @@ function extractCurrentMeet($, tr) {
 
 
     // ========================================
-    // 今節成績部分
-    //
-    // 公式表は
-    // ① レースNo
-    // ② 進入コース
-    // ③ ST
-    // ④ 着順
-    //
-    // の4段
+    // レースNo行
     // ========================================
 
-    const historyCells =
-      cells
-        .slice(historyStart)
-        .filter(v => v !== '');
-
-
-    const rows = historyCells
-      .map(text =>
-        text
-          .split(/\s+/)
-          .map(v => clean(v))
-          .filter(Boolean)
-      )
-      .filter(row => row.length > 0);
+    const raceNoCells =
+      mainCells.slice(historyStart);
 
 
     // ========================================
-    // 4段構造を探す
+    // 4行の長さを合わせる
     // ========================================
 
-    let raceNos = null;
-    let courses = null;
-    let sts = null;
-    let finishes = null;
-
-
-    for (
-      let i = 0;
-      i <= rows.length - 4;
-      i++
-    ) {
-
-      const a = rows[i];
-      const b = rows[i + 1];
-      const c = rows[i + 2];
-      const d = rows[i + 3];
-
-
-      const looksRaceNo =
-        a.some(v =>
-          /^(?:[1-9]|1[0-2])$/.test(v)
-        );
-
-      const looksCourse =
-        b.some(v =>
-          /^[1-6]$/.test(v)
-        );
-
-      const looksST =
-        c.some(v =>
-          /^F?\d*\.\d+$/.test(v)
-        );
-
-      const looksFinish =
-        d.some(v =>
-          /^[1-6]$|^[エ妨失欠転沈不落]$/.test(v)
-        );
-
-
-      if (
-        looksRaceNo &&
-        looksCourse &&
-        looksST &&
-        looksFinish
-      ) {
-
-        raceNos = a;
-        courses = b;
-        sts = c;
-        finishes = d;
-
-        break;
-
-      }
-
-    }
-
-
-    if (
-      !raceNos ||
-      !courses ||
-      !sts ||
-      !finishes
-    ) {
-
-      return {
-        races: [],
-        avgST: null
-      };
-
-    }
-
-
-    // ========================================
-    // 最大件数に合わせて組み立て
-    // ========================================
-
-    const count = Math.min(
-      raceNos.length,
-      courses.length,
-      sts.length,
-      finishes.length
+    const maxCount = Math.min(
+      raceNoCells.length,
+      courseCells.length,
+      stCells.length,
+      finishCells.length
     );
 
 
     const races = [];
 
 
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < maxCount; i++) {
 
-      const raceNoText = raceNos[i];
-      const courseText = courses[i];
-      const stText = sts[i];
-      const finishText = finishes[i];
+      const raceNoText =
+        clean(raceNoCells[i]);
+
+      const courseText =
+        clean(courseCells[i]);
+
+      const stText =
+        clean(stCells[i]);
+
+      const finishText =
+        clean(finishCells[i]);
 
 
+      // 空欄はその節の未出走枠
       if (
-        !/^(?:[1-9]|1[0-2])$/.test(raceNoText)
+        !/^(?:[1-9]|1[0-2])$/.test(
+          raceNoText
+        )
       ) {
         continue;
       }
@@ -526,54 +472,80 @@ function extractCurrentMeet($, tr) {
       }
 
 
+      // ========================================
+      // ST
+      // ========================================
+
       let st = null;
       let flying = false;
-
 
       if (/^F/.test(stText)) {
 
         flying = true;
 
-        const n =
+        const value =
           Number(
-            stText.replace('F', '')
+            stText
+              .replace(/^F/, '')
           );
 
-        if (Number.isFinite(n)) {
-          st = -n;
+        if (Number.isFinite(value)) {
+          st = -value;
         }
 
       } else {
 
-        const n = Number(stText);
+        const value =
+          Number(stText);
 
-        if (Number.isFinite(n)) {
-          st = n;
+        if (Number.isFinite(value)) {
+          st = value;
         }
 
       }
 
 
+      // ========================================
+      // 着順
+      // ========================================
+
       let finish = null;
       let finishCode = null;
 
+      // 全角数字にも対応
+      const normalizedFinish =
+        finishText
+          .replace(/１/g, '1')
+          .replace(/２/g, '2')
+          .replace(/３/g, '3')
+          .replace(/４/g, '4')
+          .replace(/５/g, '5')
+          .replace(/６/g, '6');
 
-      if (/^[1-6]$/.test(finishText)) {
 
-        finish = Number(finishText);
+      if (
+        /^[1-6]$/.test(
+          normalizedFinish
+        )
+      ) {
 
-      } else {
+        finish =
+          Number(normalizedFinish);
 
-        finishCode = finishText;
+      } else if (finishText) {
+
+        finishCode =
+          finishText;
 
       }
 
 
       races.push({
+        raceNo:
+          Number(raceNoText),
 
-        raceNo: Number(raceNoText),
-
-        course: Number(courseText),
+        course:
+          Number(courseText),
 
         st,
 
@@ -582,7 +554,6 @@ function extractCurrentMeet($, tr) {
         finish,
 
         finishCode
-
       });
 
     }
@@ -590,7 +561,6 @@ function extractCurrentMeet($, tr) {
 
     // ========================================
     // 今節平均ST
-    // Fは平均計算から除外
     // ========================================
 
     const validSTs =
@@ -610,7 +580,8 @@ function extractCurrentMeet($, tr) {
                 (sum, value) =>
                   sum + value,
                 0
-              ) / validSTs.length
+              ) /
+              validSTs.length
             ).toFixed(3)
           )
         : null;
@@ -627,9 +598,10 @@ function extractCurrentMeet($, tr) {
     return {
       races: [],
       avgST: null,
-      error: String(
-        e.message || e
-      )
+      error:
+        String(
+          e.message || e
+        )
     };
 
   }
@@ -1015,7 +987,7 @@ racers.forEach((racer, index) => {
 
       ok: true,
 
-      version: '1.0-step2-2a',
+      version: '1.1-step2-2a-fix',
 
       source: url,
 

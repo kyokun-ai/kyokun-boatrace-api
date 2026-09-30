@@ -125,7 +125,7 @@ async function fetchCourseStats(registration) {
       }
 
       const re =
-        /(?:^|\s)([1-6])\s+(-|\d+(?:\.\d+)?)\s*%?/g;
+        /(?<!\S)([1-6])\s+(-|\d+(?:\.\d+)?)(?:\s*%)?(?=\s|$)/g;
 
       let match;
 
@@ -662,7 +662,7 @@ racers.forEach((racer, index) => {
 
       ok: true,
 
-      version: '0.8-step2-1-fix',
+      version: '0.9-step2-1-fix2',
 
       source: url,
 

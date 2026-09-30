@@ -837,74 +837,11 @@ racers.forEach((racer, index) => {
     // 成功
     // ========================================
 
-    return 
-    // ========================================
-    // STEP2-3A LIGHT DEBUG
-    // beforeinfo のテーブル構造だけを軽量確認
-    // ========================================
-    const beforeInfoUrl =
-      `https://www.boatrace.jp/owpc/pc/race/beforeinfo?hd=${date}&jcd=${jcd}&rno=${rno}`;
-
-    let debugBeforeInfo = null;
-
-    try {
-      const beforeHtml = await officialFetch(beforeInfoUrl);
-      const $before = cheerio.load(beforeHtml);
-
-      const tables = [];
-
-      $before('table').each((tableIndex, table) => {
-        const rows = [];
-
-        $before(table).find('tr').each((rowIndex, tr) => {
-          const cells = [];
-
-          $before(tr).children('th,td').each((cellIndex, cell) => {
-            const $cell = $before(cell);
-            const text = clean($cell.text());
-
-            // Empty cells are still kept because column alignment matters.
-            cells.push({
-              cellIndex,
-              tag: cell.tagName || cell.name || '',
-              text,
-              colspan: Number($cell.attr('colspan')) || 1,
-              rowspan: Number($cell.attr('rowspan')) || 1
-            });
-          });
-
-          if (cells.length) rows.push({ rowIndex, cells });
-        });
-
-        if (rows.length) {
-          // Limit each table to avoid giant debug JSON.
-          tables.push({
-            tableIndex,
-            className: $before(table).attr('class') || '',
-            rows: rows.slice(0, 40)
-          });
-        }
-      });
-
-      debugBeforeInfo = {
-        url: beforeInfoUrl,
-        tableCount: tables.length,
-        // Limit number of tables too. This is only a one-time structure check.
-        tables: tables.slice(0, 20)
-      };
-    } catch (error) {
-      debugBeforeInfo = {
-        url: beforeInfoUrl,
-        error: error.message
-      };
-    }
-
-res.json({
-      debugBeforeInfo,
+    return res.json({
 
       ok: true,
 
-      version: '1.6L-step2-3a-light-debug',
+      version: '1.5-step2-2b-safe',
 
       source: url,
 
@@ -947,6 +884,86 @@ res.json({
 const port =
   process.env.PORT || 3000;
 
+
+
+// ============================================================
+// STEP2-3A v1.7
+// 直前情報専用API
+// /api/race とは完全分離し、beforeinfoだけを取得する。
+// ============================================================
+app.get('/api/beforeinfo', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').replace(/\D/g, '');
+    const jcd = String(req.query.jcd || '').padStart(2, '0');
+    const rno = Number(req.query.rno);
+
+    if (!/^\d{8}$/.test(date)) {
+      return res.status(400).json({ ok: false, error: 'date must be YYYYMMDD' });
+    }
+    if (!/^\d{2}$/.test(jcd)) {
+      return res.status(400).json({ ok: false, error: 'jcd must be 2 digits' });
+    }
+    if (!Number.isInteger(rno) || rno < 1 || rno > 12) {
+      return res.status(400).json({ ok: false, error: 'rno must be 1-12' });
+    }
+
+    const source =
+      `https://www.boatrace.jp/owpc/pc/race/beforeinfo?hd=${date}&jcd=${jcd}&rno=${rno}`;
+
+    const html = await officialFetch(source);
+    const $ = cheerio.load(html);
+
+    // DEBUGはtableだけ。選手コース別ページ等は一切取得しない。
+    const tables = [];
+
+    $('table').each((tableIndex, table) => {
+      const rows = [];
+
+      $(table).find('tr').each((rowIndex, tr) => {
+        const cells = [];
+
+        $(tr).children('th,td').each((cellIndex, cell) => {
+          const $cell = $(cell);
+          cells.push({
+            cellIndex,
+            tag: cell.tagName || cell.name || '',
+            text: clean($cell.text()),
+            colspan: Number($cell.attr('colspan')) || 1,
+            rowspan: Number($cell.attr('rowspan')) || 1
+          });
+        });
+
+        if (cells.length) rows.push({ rowIndex, cells });
+      });
+
+      if (rows.length) {
+        tables.push({
+          tableIndex,
+          className: $(table).attr('class') || '',
+          rows: rows.slice(0, 35)
+        });
+      }
+    });
+
+    res.json({
+      ok: true,
+      version: '1.7-step2-3a-split-debug',
+      source,
+      date,
+      jcd,
+      rno,
+      tableCount: tables.length,
+      tables: tables.slice(0, 15)
+    });
+  } catch (error) {
+    console.error('beforeinfo error:', error);
+    res.status(500).json({
+      ok: false,
+      version: '1.7-step2-3a-split-debug',
+      error: error.message
+    });
+  }
+});
 
 app.listen(
   port,

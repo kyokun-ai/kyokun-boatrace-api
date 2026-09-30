@@ -914,6 +914,49 @@ app.get('/api/race', async (req, res) => {
     });
 
 
+    // ========================================
+    // DEBUG STEP2-2 HTML表構造確認
+    // 滝沢芳行だけ取得
+    // ========================================
+
+    const debugMeetTable = [];
+
+    $('tr').each((rowIndex, tr) => {
+
+      const rowText = clean($(tr).text());
+
+      if (
+        rowText.includes('3381') ||
+        (
+          debugMeetTable.length > 0 &&
+          debugMeetTable.length < 4
+        )
+      ) {
+
+        const cells = [];
+
+        $(tr).children('td').each((cellIndex, td) => {
+
+          cells.push({
+            cellIndex,
+            text: clean($(td).text()),
+            colspan: Number($(td).attr('colspan')) || 1,
+            rowspan: Number($(td).attr('rowspan')) || 1,
+            className: $(td).attr('class') || ''
+          });
+
+        });
+
+        debugMeetTable.push({
+          rowIndex,
+          cells
+        });
+
+      }
+
+    });
+
+
     racers.sort(
       (a, b) => a.lane - b.lane
     );
@@ -991,7 +1034,7 @@ racers.forEach((racer, index) => {
 
       ok: true,
 
-      version: '1.2-step2-2a-align',
+      version: '1.3-step2-2-debug',
 
       source: url,
 
@@ -1000,6 +1043,8 @@ racers.forEach((racer, index) => {
       jcd,
 
       rno: Number(rno),
+
+      debugMeetTable,
 
       racers
 

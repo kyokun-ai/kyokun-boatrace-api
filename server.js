@@ -8,12 +8,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/', (req, res) => {
-  res.json({
-    ok: true,
-    name: 'Kyokun BOATRACE API v0.4'
-  });
-});
+app.use(express.static('.'));
 
 const clean = (s) =>
   (s ?? '')

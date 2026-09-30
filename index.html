@@ -1,1 +1,617 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>キョウ君AI STEP1-B</title><style>body{font-family:system-ui,sans-serif;background:#081526;color:#eef6ff;margin:0;padding:20px}.wrap{max-width:900px;margin:auto}.card{background:#10233c;border:1px solid #294563;border-radius:16px;padding:16px;margin:14px 0}label{display:block;margin:8px 0}input,select,button{font:inherit;padding:12px;border-radius:10px;border:1px solid #49647f}button{background:#10b981;color:#06231b;font-weight:800;cursor:pointer}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.boat{padding:12px;border-bottom:1px solid #294563}small{color:#a9bfd6}.err{color:#ffb4b4}.ok{color:#8ff0c7}</style></head><body><div class="wrap"><h1>🚤 キョウ君AI STEP1-B</h1><div class="card"><label>API URL<input id="api" placeholder="https://xxxx.onrender.com" style="width:100%;box-sizing:border-box"></label><div class="grid"><label>日付<input id="date" type="date"></label><label>競艇場<select id="jcd"></select></label><label>R<select id="rno"></select></label></div><button id="get">🔄 最新情報取得</button><p id="status"><small>API設置後、そのURLを一度入力してください。</small></p></div><div class="card"><h2>出走情報</h2><div id="out">未取得</div></div></div><script>const venues=['01 桐生','02 戸田','03 江戸川','04 平和島','05 多摩川','06 浜名湖','07 蒲郡','08 常滑','09 津','10 三国','11 びわこ','12 住之江','13 尼崎','14 鳴門','15 丸亀','16 児島','17 宮島','18 徳山','19 下関','20 若松','21 芦屋','22 福岡','23 唐津','24 大村'];const j=document.querySelector('#jcd');venues.forEach(v=>{let o=document.createElement('option');o.value=v.slice(0,2);o.textContent=v;j.append(o)});const r=document.querySelector('#rno');for(let i=1;i<=12;i++){let o=document.createElement('option');o.value=i;o.textContent=i+'R';r.append(o)};document.querySelector('#date').value=new Date().toISOString().slice(0,10);document.querySelector('#get').onclick=async()=>{const s=document.querySelector('#status'),out=document.querySelector('#out');let base=document.querySelector('#api').value.trim().replace(/\/$/,'');if(!base){s.innerHTML='<span class="err">API URLを入力してください。</span>';return}let d=document.querySelector('#date').value.replaceAll('-','');s.textContent='取得中…';try{let x=await fetch(`${base}/api/race?date=${d}&jcd=${j.value}&rno=${r.value}`);let z=await x.json();if(!z.ok)throw new Error(z.error||'取得失敗');s.innerHTML='<span class="ok">取得成功</span>';out.innerHTML=z.racers.length?z.racers.map((b,i)=>`<div class="boat"><b>${i+1}号艇</b>　登録 ${b.registration}　${b.rank}<br><small>${b.raw}</small></div>`).join(''):`<p>API接続成功。ただし選手情報の解析がまだ一致していません。次版で公式HTML構造に合わせて調整します。</p><details><summary>取得した公式テキストを確認</summary><pre style="white-space:pre-wrap">${z.officialText.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</pre></details>`}catch(e){s.innerHTML='<span class="err">'+e.message+'</span>'}};</script></body></html>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>キョウ君 BOATRACE AI</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0b1220;
+  color: #fff;
+}
+
+header {
+  padding: 18px 16px;
+  background: #111b2e;
+  border-bottom: 1px solid #26344d;
+}
+
+h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.sub {
+  margin-top: 5px;
+  color: #8fa4c4;
+  font-size: 12px;
+}
+
+main {
+  max-width: 700px;
+  margin: auto;
+  padding: 14px;
+}
+
+.panel {
+  background: #131e31;
+  border: 1px solid #26344d;
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.panel-title {
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+label {
+  display: block;
+  font-size: 12px;
+  color: #9fb0c9;
+  margin-bottom: 5px;
+}
+
+select,
+input {
+  width: 100%;
+  padding: 12px;
+  border-radius: 9px;
+  border: 1px solid #34445f;
+  background: #0d1626;
+  color: white;
+  font-size: 16px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.full {
+  grid-column: 1 / -1;
+}
+
+button {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 700;
+  background: #2f80ed;
+  color: white;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: .55;
+}
+
+#status {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #9fb0c9;
+  min-height: 18px;
+}
+
+.racer {
+  background: #131e31;
+  border: 1px solid #26344d;
+  border-radius: 13px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.racer-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+}
+
+.lane {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 21px;
+  font-weight: 800;
+}
+
+.lane1 {
+  background: white;
+  color: black;
+}
+
+.lane2 {
+  background: #333;
+  color: white;
+}
+
+.lane3 {
+  background: #e53935;
+  color: white;
+}
+
+.lane4 {
+  background: #1976d2;
+  color: white;
+}
+
+.lane5 {
+  background: #f6c344;
+  color: #111;
+}
+
+.lane6 {
+  background: #43a047;
+  color: white;
+}
+
+.racer-name {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.racer-sub {
+  color: #9fb0c9;
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.rank {
+  margin-left: auto;
+  background: #243451;
+  padding: 6px 9px;
+  border-radius: 7px;
+  font-weight: 700;
+}
+
+.stats {
+  padding: 0 12px 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.stat {
+  background: #0d1626;
+  padding: 9px;
+  border-radius: 8px;
+}
+
+.stat-label {
+  color: #8fa4c4;
+  font-size: 11px;
+}
+
+.stat-value {
+  margin-top: 3px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.alert {
+  color: #ffcb6b;
+}
+
+.error {
+  color: #ff7474 !important;
+}
+
+.empty {
+  text-align: center;
+  color: #7f93b1;
+  padding: 30px 10px;
+}
+
+@media (max-width: 430px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .full {
+    grid-column: auto;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <h1>🚤 キョウ君 BOATRACE AI</h1>
+  <div class="sub">STEP1-C｜出走データ自動取得</div>
+</header>
+
+<main>
+
+  <div class="panel">
+
+    <div class="panel-title">レース選択</div>
+
+    <div class="form-grid">
+
+      <div>
+        <label>日付</label>
+        <input type="date" id="date">
+      </div>
+
+      <div>
+        <label>競艇場</label>
+        <select id="jcd">
+          <option value="01">桐生</option>
+          <option value="02" selected>戸田</option>
+          <option value="03">江戸川</option>
+          <option value="04">平和島</option>
+          <option value="05">多摩川</option>
+          <option value="06">浜名湖</option>
+          <option value="07">蒲郡</option>
+          <option value="08">常滑</option>
+          <option value="09">津</option>
+          <option value="10">三国</option>
+          <option value="11">びわこ</option>
+          <option value="12">住之江</option>
+          <option value="13">尼崎</option>
+          <option value="14">鳴門</option>
+          <option value="15">丸亀</option>
+          <option value="16">児島</option>
+          <option value="17">宮島</option>
+          <option value="18">徳山</option>
+          <option value="19">下関</option>
+          <option value="20">若松</option>
+          <option value="21">芦屋</option>
+          <option value="22">福岡</option>
+          <option value="23">唐津</option>
+          <option value="24">大村</option>
+        </select>
+      </div>
+
+      <div class="full">
+        <label>レース</label>
+        <select id="rno">
+          <option value="1">1R</option>
+          <option value="2">2R</option>
+          <option value="3">3R</option>
+          <option value="4">4R</option>
+          <option value="5">5R</option>
+          <option value="6">6R</option>
+          <option value="7">7R</option>
+          <option value="8">8R</option>
+          <option value="9">9R</option>
+          <option value="10">10R</option>
+          <option value="11">11R</option>
+          <option value="12">12R</option>
+        </select>
+      </div>
+
+      <div class="full">
+        <button id="loadBtn" onclick="loadRace()">
+          最新情報を取得
+        </button>
+      </div>
+
+    </div>
+
+    <div id="status"></div>
+
+  </div>
+
+  <div id="raceInfo"></div>
+
+  <div id="racers">
+    <div class="empty">
+      日付・競艇場・レースを選んで<br>
+      「最新情報を取得」を押してください
+    </div>
+  </div>
+
+</main>
+
+<script>
+
+const API =
+  "https://kyokun-boatrace-api.onrender.com";
+
+const venueNames = {
+  "01":"桐生",
+  "02":"戸田",
+  "03":"江戸川",
+  "04":"平和島",
+  "05":"多摩川",
+  "06":"浜名湖",
+  "07":"蒲郡",
+  "08":"常滑",
+  "09":"津",
+  "10":"三国",
+  "11":"びわこ",
+  "12":"住之江",
+  "13":"尼崎",
+  "14":"鳴門",
+  "15":"丸亀",
+  "16":"児島",
+  "17":"宮島",
+  "18":"徳山",
+  "19":"下関",
+  "20":"若松",
+  "21":"芦屋",
+  "22":"福岡",
+  "23":"唐津",
+  "24":"大村"
+};
+
+function setToday() {
+  const now = new Date();
+
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+
+  document.getElementById("date").value =
+    `${y}-${m}-${d}`;
+}
+
+function formatDate(value) {
+  return value.replaceAll("-", "");
+}
+
+function val(value, suffix = "") {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+
+  return value + suffix;
+}
+
+async function loadRace() {
+
+  const button = document.getElementById("loadBtn");
+  const status = document.getElementById("status");
+  const racersBox = document.getElementById("racers");
+  const raceInfo = document.getElementById("raceInfo");
+
+  const dateInput =
+    document.getElementById("date").value;
+
+  const jcd =
+    document.getElementById("jcd").value;
+
+  const rno =
+    document.getElementById("rno").value;
+
+  if (!dateInput) {
+    status.textContent = "日付を選択してください";
+    status.className = "error";
+    return;
+  }
+
+  const date = formatDate(dateInput);
+
+  button.disabled = true;
+  button.textContent = "取得中...";
+
+  status.className = "";
+  status.textContent =
+    "BOAT RACE公式データを取得しています...";
+
+  racersBox.innerHTML = "";
+  raceInfo.innerHTML = "";
+
+  try {
+
+    const url =
+      `${API}/api/race` +
+      `?date=${date}` +
+      `&jcd=${jcd}` +
+      `&rno=${rno}`;
+
+    const response = await fetch(url);
+
+    const data = await response.json();
+
+    if (!data.ok) {
+      throw new Error(
+        data.error || "データ取得に失敗しました"
+      );
+    }
+
+    status.textContent =
+      `取得成功｜${venueNames[jcd]} ${rno}R`;
+
+    raceInfo.innerHTML = `
+      <div class="panel">
+        <div class="panel-title">
+          ${venueNames[jcd]} ${rno}R
+        </div>
+
+        <div class="sub">
+          ${dateInput} ｜ 6艇取得完了
+        </div>
+      </div>
+    `;
+
+    racersBox.innerHTML =
+      data.racers
+        .map(createRacerCard)
+        .join("");
+
+  } catch (error) {
+
+    status.className = "error";
+    status.textContent =
+      "取得エラー：" + error.message;
+
+    racersBox.innerHTML = `
+      <div class="empty">
+        データを取得できませんでした。<br>
+        開催日・競艇場・レースを確認してください。
+      </div>
+    `;
+
+  } finally {
+
+    button.disabled = false;
+    button.textContent = "最新情報を取得";
+
+  }
+
+}
+
+function createRacerCard(r) {
+
+  const fAlert =
+    r.F > 0 ? "alert" : "";
+
+  return `
+    <div class="racer">
+
+      <div class="racer-head">
+
+        <div class="lane lane${r.lane}">
+          ${r.lane}
+        </div>
+
+        <div>
+          <div class="racer-name">
+            ${r.name}
+          </div>
+
+          <div class="racer-sub">
+            登録 ${r.registration}
+            ｜ ${r.branch}/${r.birthplace}
+            ｜ ${r.age}歳
+          </div>
+        </div>
+
+        <div class="rank">
+          ${r.rank}
+        </div>
+
+      </div>
+
+      <div class="stats">
+
+        <div class="stat">
+          <div class="stat-label">
+            体重
+          </div>
+          <div class="stat-value">
+            ${val(r.weight, "kg")}
+          </div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-label">
+            平均ST
+          </div>
+          <div class="stat-value">
+            ${val(r.avgST)}
+          </div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-label">
+            F / L
+          </div>
+          <div class="stat-value ${fAlert}">
+            F${r.F} / L${r.L}
+          </div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-label">
+            全国勝率
+          </div>
+          <div class="stat-value">
+            ${val(r.national.winRate)}
+          </div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-label">
+            全国2連率
+          </div>
+          <div class="stat-value">
+            ${val(r.national.quinellaRate, "%")}
+          </div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-label">
+            当地勝率
+          </div>
+          <div class="stat-value">
+            ${val(r.local.winRate)}
+          </div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-label">
+            当地2連率
+          </div>
+          <div class="stat-value">
+            ${val(r.local.quinellaRate, "%")}
+          </div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-label">
+            モーター
+          </div>
+          <div class="stat-value">
+            ${val(r.motor.no, "号")}
+          </div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-label">
+            モーター2連率
+          </div>
+          <div class="stat-value">
+            ${val(r.motor.quinellaRate, "%")}
+          </div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-label">
+            ボート
+          </div>
+          <div class="stat-value">
+            ${val(r.boat.no, "号")}
+          </div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-label">
+            ボート2連率
+          </div>
+          <div class="stat-value">
+            ${val(r.boat.quinellaRate, "%")}
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  `;
+}
+
+setToday();
+
+</script>
+
+</body>
+</html>

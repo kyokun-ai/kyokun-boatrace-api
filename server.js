@@ -3,6 +3,8 @@ import * as cheerio from 'cheerio';
 
 const app = express();
 
+app.use(express.json({ limit: '1mb' }));
+
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   next();
@@ -1261,6 +1263,259 @@ app.get('/api/beforeinfo', async (req, res) => {
     });
   }
 });
+
+
+// ========================================
+// STEP3 試作予想エンジン v2.4
+// オッズは一切受け取らない / 参照しない
+// 本線7点 + 差し頭2点 = 9点
+// ========================================
+
+const clamp = (v, min = 0, max = 100) => Math.max(min, Math.min(max, v));
+const avg = values => {
+  const xs = values.filter(Number.isFinite);
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+};
+const rankBonus = rank => ({ A1: 10, A2: 6, B1: 2, B2: -5 }[rank] ?? 0);
+
+function buildPredictionFeatures(race, before) {
+  const beforeByLane = new Map((before?.racers || []).map(x => [Number(x.lane), x]));
+  const startByLane = new Map((before?.startExhibition || []).map(x => [Number(x.lane), x]));
+
+  const exhibitionTimes = (before?.racers || [])
+    .map(x => Number(x.exhibitionTime))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+
+  const exhibitionRank = time => {
+    if (!Number.isFinite(time)) return null;
+    return [...new Set(exhibitionTimes)].indexOf(time) + 1;
+  };
+
+  return (race?.racers || []).map(r => {
+    const lane = Number(r.lane);
+    const direct = beforeByLane.get(lane) || {};
+    const startEx = startByLane.get(lane) || {};
+    const safeRaces = r.currentMeetSafe?.races || [];
+    const last3 = safeRaces.slice(-3);
+
+    const meetAvgST = avg(safeRaces.map(x => Number(x.st)));
+    const recent3ST = avg(last3.map(x => Number(x.st)));
+
+    const validFinishes = safeRaces.map(x => Number(x.finish)).filter(Number.isFinite);
+    const recentFinishes = last3.map(x => Number(x.finish)).filter(Number.isFinite);
+    const meetAvgFinish = avg(validFinishes);
+    const recent3Finish = avg(recentFinishes);
+    const top3Rate = validFinishes.length
+      ? validFinishes.filter(x => x <= 3).length / validFinishes.length * 100
+      : null;
+
+    const actualCourse =
+      (before?.entryOrder || []).indexOf(lane) >= 0
+        ? (before.entryOrder.indexOf(lane) + 1)
+        : lane;
+
+    const course = r.courseStats?.[String(actualCourse)] || {};
+    const exRank = exhibitionRank(Number(direct.exhibitionTime));
+
+    // Separate feature groups.  These are intentionally not a single opaque score.
+    const startScore = clamp(
+      55
+      + (Number.isFinite(meetAvgST) ? (0.16 - meetAvgST) * 240 : 0)
+      + (Number.isFinite(recent3ST) ? (0.16 - recent3ST) * 160 : 0)
+      + (Number.isFinite(Number(course.avgST)) ? (0.17 - Number(course.avgST)) * 100 : 0)
+      + (Number.isFinite(Number(startEx.st)) ? (0.15 - Number(startEx.st)) * 120 : 0)
+      - (Number(r.F || 0) * 9)
+      - (startEx.flying ? 5 : 0)
+    );
+
+    const courseScore = clamp(
+      35
+      + (Number(course.trioRate) || 0) * 0.55
+      + (Number.isFinite(Number(course.avgStartRank)) ? (4 - Number(course.avgStartRank)) * 5 : 0)
+      + (actualCourse === 1 ? 8 : 0)
+    );
+
+    const formScore = clamp(
+      50
+      + (Number.isFinite(meetAvgFinish) ? (3.5 - meetAvgFinish) * 12 : 0)
+      + (Number.isFinite(recent3Finish) ? (3.5 - recent3Finish) * 8 : 0)
+      + (Number.isFinite(top3Rate) ? (top3Rate - 50) * 0.25 : 0)
+    );
+
+    const machineScore = clamp(
+      42
+      + (Number(r.motor?.quinellaRate) || 0) * 0.75
+      + (Number(r.motor?.trioRate) || 0) * 0.25
+      + (Number.isFinite(Number(r.preInspection?.timeRank))
+          ? (8 - Number(r.preInspection.timeRank)) * 2
+          : 0)
+    );
+
+    const directScore = clamp(
+      50
+      + (Number.isFinite(exRank) ? (7 - exRank) * 5 : 0)
+      + (Number.isFinite(Number(startEx.st)) ? (0.15 - Number(startEx.st)) * 80 : 0)
+      - (startEx.flying ? 4 : 0)
+    );
+
+    // This combined value is used only to order candidates.
+    // The six component scores remain exposed so Kyokun can explain the reason.
+    const orderScore =
+      startScore * 0.24 +
+      courseScore * 0.22 +
+      formScore * 0.22 +
+      machineScore * 0.14 +
+      directScore * 0.18 +
+      rankBonus(r.rank);
+
+    return {
+      lane,
+      name: r.name,
+      rank: r.rank,
+      F: r.F,
+      actualCourse,
+      raw: {
+        avgST: r.avgST,
+        meetAvgST,
+        recent3ST,
+        meetAvgFinish,
+        recent3Finish,
+        top3Rate,
+        courseTrioRate: course.trioRate ?? null,
+        courseAvgST: course.avgST ?? null,
+        courseAvgStartRank: course.avgStartRank ?? null,
+        motorQuinellaRate: r.motor?.quinellaRate ?? null,
+        motorTrioRate: r.motor?.trioRate ?? null,
+        preInspectionRank: r.preInspection?.timeRank ?? null,
+        exhibitionTime: direct.exhibitionTime ?? null,
+        exhibitionRank: exRank,
+        startExhibitionST: startEx.st ?? null,
+        startExhibitionFlying: startEx.flying ?? null,
+        tilt: direct.tilt ?? null,
+        adjustWeight: direct.adjustWeight ?? null,
+        partsExchange: direct.partsExchange ?? null
+      },
+      scores: {
+        start: Math.round(startScore),
+        course: Math.round(courseScore),
+        form: Math.round(formScore),
+        machine: Math.round(machineScore),
+        direct: Math.round(directScore),
+        order: Math.round(orderScore * 10) / 10
+      }
+    };
+  });
+}
+
+function makeNineBets(features) {
+  const sorted = [...features].sort((a, b) => b.scores.order - a.scores.order);
+
+  // Main head: strongest overall candidate, with a modest inside-course preference.
+  const mainHead = [...features].sort((a, b) => {
+    const aa = a.scores.order + (a.actualCourse === 1 ? 7 : a.actualCourse === 2 ? 2 : 0);
+    const bb = b.scores.order + (b.actualCourse === 1 ? 7 : b.actualCourse === 2 ? 2 : 0);
+    return bb - aa;
+  })[0];
+
+  const followers = sorted.filter(x => x.lane !== mainHead.lane);
+
+  const main = [];
+  for (let i = 0; i < followers.length && main.length < 7; i++) {
+    for (let j = 0; j < followers.length && main.length < 7; j++) {
+      if (i === j) continue;
+      main.push(`${mainHead.lane}-${followers[i].lane}-${followers[j].lane}`);
+    }
+  }
+
+  // "差し頭": prefer the racer actually entering course 2 when viable.
+  const course2 = features.find(x => x.actualCourse === 2 && x.lane !== mainHead.lane);
+  const differenceHead =
+    course2 && course2.scores.order >= 48
+      ? course2
+      : followers[0];
+
+  const thirdCandidates = sorted
+    .filter(x => x.lane !== differenceHead.lane && x.lane !== mainHead.lane)
+    .slice(0, 2);
+
+  const difference = thirdCandidates.map(
+    x => `${differenceHead.lane}-${mainHead.lane}-${x.lane}`
+  );
+
+  while (difference.length < 2) {
+    const fallback = followers.find(
+      x => x.lane !== differenceHead.lane &&
+           !difference.some(b => b.endsWith(`-${x.lane}`))
+    );
+    if (!fallback) break;
+    difference.push(`${differenceHead.lane}-${mainHead.lane}-${fallback.lane}`);
+  }
+
+  const top = sorted[0]?.scores.order ?? 0;
+  const second = sorted[1]?.scores.order ?? 0;
+  const spread = top - second;
+  const confidence =
+    spread >= 12 ? '高め' :
+    spread >= 6 ? 'やや高め' :
+    spread >= 2 ? '中' : '低め';
+
+  return {
+    mainHead: mainHead.lane,
+    differenceHead: differenceHead?.lane ?? null,
+    main: main.slice(0, 7),
+    difference: difference.slice(0, 2),
+    all: [...main.slice(0, 7), ...difference.slice(0, 2)],
+    confidence
+  };
+}
+
+app.post('/api/predict', (req, res) => {
+  try {
+    const { race, before } = req.body || {};
+
+    if (!race?.ok || !Array.isArray(race?.racers)) {
+      return res.status(400).json({ ok: false, error: 'valid race data is required' });
+    }
+    if (!before?.ok) {
+      return res.status(400).json({ ok: false, error: 'valid beforeinfo data is required' });
+    }
+
+    const features = buildPredictionFeatures(race, before);
+    const bets = makeNineBets(features);
+
+    res.json({
+      ok: true,
+      version: '2.4-step3-kyokun-prototype',
+      predictionSafe: true,
+      oddsUsed: false,
+      date: race.date,
+      jcd: race.jcd,
+      rno: race.rno,
+      entryOrder: before.entryOrder || null,
+      isWakunari: before.isWakunari ?? null,
+      weather: before.weather || null,
+      predictionFeatures: features,
+      prediction: {
+        style: '本線7点 + 差し頭2点',
+        confidence: bets.confidence,
+        mainHead: bets.mainHead,
+        differenceHead: bets.differenceHead,
+        main: bets.main,
+        difference: bets.difference,
+        all: bets.all
+      }
+    });
+  } catch (error) {
+    console.error('predict error:', error);
+    res.status(500).json({
+      ok: false,
+      version: '2.4-step3-kyokun-prototype',
+      error: error.message
+    });
+  }
+});
+
 
 app.listen(
   port,

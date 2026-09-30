@@ -1027,8 +1027,8 @@ app.get('/api/beforeinfo', async (req, res) => {
         const st = Number(`0.${m[3].padStart(2, '0')}`);
 
         startExhibition.push({
-          course,
-          lane: null,
+          course: startExhibition.length + 1,
+          lane: course,
           st,
           flying,
           raw: text
@@ -1036,21 +1036,57 @@ app.get('/api/beforeinfo', async (req, res) => {
       });
     }
 
-    // IMPORTANT:
-    // beforeinfo table text verified so far gives course + ST.
-    // Boat/lane identity during changed entry has not yet been verified,
-    // so do not fabricate an entry order.
-    const entryOrder = null;
-    const isWakunari = null;
-    const entryMappingVerified = false;
+    // Start exhibition rows are displayed in course order.
+    // The leading number in each row is the boat/lane number.
+    const entryOrder = startExhibition.map(x => x.lane);
+    const isWakunari =
+      entryOrder.length === 6 &&
+      entryOrder.every((lane, index) => lane === index + 1);
+    const entryMappingVerified = entryOrder.length === 6;
+
+    // ---- Water / weather information ----
+    // BOAT RACE beforeinfo exposes these values on the same page.
+    // We search compact text around the labels and keep null when unavailable.
+    const bodyText = clean($('body').text());
+
+    const valueAfter = (label, pattern) => {
+      const pos = bodyText.indexOf(label);
+      if (pos < 0) return null;
+      const chunk = bodyText.slice(pos, pos + 120);
+      const m = chunk.match(pattern);
+      return m ? m[1] : null;
+    };
+
+    const airTempRaw = valueAfter('気温', /気温\s*(-?\d+(?:\.\d+)?)\s*℃?/);
+    const waterTempRaw = valueAfter('水温', /水温\s*(-?\d+(?:\.\d+)?)\s*℃?/);
+    const windSpeedRaw = valueAfter('風速', /風速\s*(\d+(?:\.\d+)?)\s*m/);
+    const waveHeightRaw = valueAfter('波高', /波高\s*(\d+(?:\.\d+)?)\s*cm/);
+
+    let weatherText = null;
+    const weatherPos = bodyText.indexOf('天候');
+    if (weatherPos >= 0) {
+      const chunk = bodyText.slice(weatherPos, weatherPos + 80);
+      const m = chunk.match(/天候\s*([^\d℃m]{1,12})/);
+      if (m) weatherText = clean(m[1]) || null;
+    }
+
+    const weather = {
+      airTemperature: airTempRaw != null ? Number(airTempRaw) : null,
+      weather: weatherText,
+      windSpeed: windSpeedRaw != null ? Number(windSpeedRaw) : null,
+      waterTemperature: waterTempRaw != null ? Number(waterTempRaw) : null,
+      waveHeight: waveHeightRaw != null ? Number(waveHeightRaw) : null,
+      windDirection: null
+    };
 
     res.json({
       ok: true,
-      version: '1.9-step2-3a-stfix',
+      version: '2.0-step2-3b-weather-entry',
       source,
       date,
       jcd,
       rno,
+      weather,
       racers,
       startExhibition,
       entryOrder,
@@ -1061,7 +1097,7 @@ app.get('/api/beforeinfo', async (req, res) => {
     console.error('beforeinfo error:', error);
     res.status(500).json({
       ok: false,
-      version: '1.9-step2-3a-stfix',
+      version: '2.0-step2-3b-weather-entry',
       error: error.message
     });
   }

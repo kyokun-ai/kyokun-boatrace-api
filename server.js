@@ -37,6 +37,117 @@ async function officialFetch(url) {
   return await response.text();
 }
 
+
+// ========================================
+// STEP2-4 前検タイム・モーター抽選結果
+// 開催につき1回だけ取得
+// ========================================
+
+async function fetchPreInspection(date, jcd) {
+  const url =
+    `https://www.boatrace.jp/owpc/pc/race/rankingmotor?hd=${date}&jcd=${jcd}`;
+
+  try {
+    const html = await officialFetch(url);
+    const $ = cheerio.load(html);
+
+    let targetTable = null;
+
+    $('table').each((_, table) => {
+      if (targetTable) return;
+      const header = clean($(table).text());
+      if (
+        header.includes('登録番号') &&
+        header.includes('モーター') &&
+        header.includes('ボート') &&
+        header.includes('前検タイム')
+      ) {
+        targetTable = table;
+      }
+    });
+
+    if (!targetTable) {
+      return {
+        source: url,
+        racers: {},
+        error: 'pre-inspection table not found'
+      };
+    }
+
+    const racers = {};
+
+    $(targetTable).find('tr').each((_, tr) => {
+      const cells = $(tr).find('th,td')
+        .map((__, cell) => clean($(cell).text()))
+        .get();
+
+      // Data row:
+      // 順位 / 登録番号 / 選手 / 級別 /
+      // モーター番号 / モーター2連対率 /
+      // ボート番号 / ボート2連対率 / 前検タイム
+      if (cells.length < 9) return;
+
+      const registration = String(cells[1] || '').match(/\d{4}/)?.[0];
+      if (!registration) return;
+
+      const num = value => {
+        const text = String(value ?? '')
+          .replace(/,/g, '')
+          .replace(/%/g, '')
+          .trim();
+        const m = text.match(/-?(?:\d+(?:\.\d+)?|\.\d+)/);
+        if (!m) return null;
+        const normalized = m[0].startsWith('-.')
+          ? m[0].replace('-.', '-0.')
+          : m[0].startsWith('.')
+            ? `0${m[0]}`
+            : m[0];
+        const n = Number(normalized);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      racers[registration] = {
+        registration,
+        name: cells[2] || null,
+        rankClass: cells[3] || null,
+        motorNo: num(cells[4]),
+        motorQuinellaRate: num(cells[5]),
+        boatNo: num(cells[6]),
+        boatQuinellaRate: num(cells[7]),
+        time: num(cells[8]),
+        timeRank: null
+      };
+    });
+
+    // 前検タイムは小さいほど上位として開催全選手から順位を計算。
+    // 同タイムは同順位（competition ranking）。
+    const validTimes = Object.values(racers)
+      .map(r => r.time)
+      .filter(v => Number.isFinite(v))
+      .sort((a, b) => a - b);
+
+    const uniqueTimes = [...new Set(validTimes)];
+
+    Object.values(racers).forEach(racer => {
+      if (Number.isFinite(racer.time)) {
+        racer.timeRank = uniqueTimes.indexOf(racer.time) + 1;
+      }
+    });
+
+    return {
+      source: url,
+      racers
+    };
+
+  } catch (error) {
+    return {
+      source: url,
+      racers: {},
+      error: String(error?.message || error)
+    };
+  }
+}
+
 // ========================================
 // STEP2-1 コース別成績 v0.8
 // ========================================
@@ -833,6 +944,33 @@ racers.forEach((racer, index) => {
 
 });
 
+// ========================================
+// STEP2-4
+// 前検タイム・モーター抽選結果を開催1回取得
+// ========================================
+
+const preInspectionResult =
+  await fetchPreInspection(date, jcd);
+
+racers.forEach(racer => {
+  const pre =
+    preInspectionResult?.racers?.[String(racer.registration)]
+    ?? null;
+
+  racer.preInspection = pre
+    ? {
+        time: pre.time,
+        timeRank: pre.timeRank,
+        motorNo: pre.motorNo,
+        motorQuinellaRate: pre.motorQuinellaRate,
+        boatNo: pre.boatNo,
+        boatQuinellaRate: pre.boatQuinellaRate
+      }
+    : null;
+});
+
+
+
     // ========================================
     // 成功
     // ========================================
@@ -841,7 +979,7 @@ racers.forEach((racer, index) => {
 
       ok: true,
 
-      version: '1.5-step2-2b-safe',
+      version: '2.2-step2-4-preinspection',
 
       source: url,
 

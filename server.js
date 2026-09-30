@@ -287,329 +287,115 @@ async function fetchCourseStats(registration) {
 }
 
 // ========================================
-// STEP2-2A 今節成績 v1.2
-// colspan / 空白列保持版
+// STEP2-2A 今節成績 v1.4
+// HTML実構造確定版
 // ========================================
 
 function extractCurrentMeet($, tr) {
 
   try {
 
-    // ----------------------------------------
-    // 1つのtrを「見た目の列数」に展開する
-    //
-    // colspan=3 なら
-    // [値, "", ""]
-    //
-    // として空白列を保持する
-    // ----------------------------------------
-
-    function expandRow(row) {
-
-      const result = [];
-
-      $(row).children('td').each((_, td) => {
-
-        const text = clean($(td).text());
-
-        const colspan =
-          Math.max(
-            1,
-            Number($(td).attr('colspan')) || 1
-          );
-
-        result.push(text);
-
-        for (let i = 1; i < colspan; i++) {
-          result.push('');
-        }
-
-      });
-
-      return result;
-    }
-
-
-    // ----------------------------------------
-    // 選手本体 + 下3行
-    // ----------------------------------------
-
     const mainRow = $(tr);
+    const courseRow = mainRow.next('tr');
+    const stRow = courseRow.next('tr');
+    const finishRow = stRow.next('tr');
 
-    const courseRow =
-      mainRow.next('tr');
-
-    const stRow =
-      courseRow.next('tr');
-
-    const finishRow =
-      stRow.next('tr');
-
-
-    if (
-      !courseRow.length ||
-      !stRow.length ||
-      !finishRow.length
-    ) {
-
-      return {
-        races: [],
-        avgST: null
-      };
-
+    if (!courseRow.length || !stRow.length || !finishRow.length) {
+      return { races: [], avgST: null, predictionSafe: false };
     }
 
+    const getCells = row =>
+      $(row).children('td').map((_, td) => clean($(td).text())).get();
 
-    const mainExpanded =
-      expandRow(mainRow);
+    const mainCells = getCells(mainRow);
+    const courseCells = getCells(courseRow);
+    const stCells = getCells(stRow);
+    const finishCells = getCells(finishRow);
 
-    const courseExpanded =
-      expandRow(courseRow);
-
-    const stExpanded =
-      expandRow(stRow);
-
-    const finishExpanded =
-      expandRow(finishRow);
-
-
-    // ========================================
-    // 今節欄は
-    //
-    // 15列 + 最後に早見1列
-    //
-    // 選手本体行：
-    //   最後16列のうち先頭15列
-    //
-    // 下3行：
-    //   最後15列
-    //
-    // として位置を固定する
-    // ========================================
-
-    if (mainExpanded.length < 16) {
-
-      return {
-        races: [],
-        avgST: null
-      };
-
-    }
-
-
-    const raceNos =
-      mainExpanded.slice(-16, -1);
-
-
-    const courses =
-      courseExpanded.slice(-15);
-
-
-    const sts =
-      stExpanded.slice(-15);
-
-
-    const finishes =
-      finishExpanded.slice(-15);
-
+    // 公式racelistの実構造：
+    // 選手本体行は cellIndex 0〜8 が基本情報、9〜22 が今節欄、23 が早見。
+    // 下3行は rowspan の基本情報セルが省略され、0〜13 が今節欄。
+    const raceNos = mainCells.slice(9, 23);
+    const courses = courseCells.slice(0, 14);
+    const sts = stCells.slice(0, 14);
+    const finishes = finishCells.slice(0, 14);
 
     const races = [];
 
+    for (let i = 0; i < 14; i++) {
 
-    // ========================================
-    // 15列を「同じ列番号」で結合
-    //
-    // ★ filter(Boolean) は絶対しない
-    // ========================================
+      const raceNoText = clean(raceNos[i] || '');
+      const courseText = clean(courses[i] || '');
+      const stText = clean(sts[i] || '');
+      const finishText = clean(finishes[i] || '');
 
-    for (let i = 0; i < 15; i++) {
-
-      const raceNoText =
-        clean(raceNos[i] || '');
-
-      const courseText =
-        clean(courses[i] || '');
-
-      const stText =
-        clean(sts[i] || '');
-
-      const finishText =
-        clean(finishes[i] || '');
-
-
-      // レースNoが空なら
-      // この列は未出走
-      if (
-        !/^(?:[1-9]|1[0-2])$/.test(
-          raceNoText
-        )
-      ) {
-        continue;
-      }
-
-
-      // 進入コースが取れないものは
-      // 無理に推測しない
-      if (
-        !/^[1-6]$/.test(
-          courseText
-        )
-      ) {
-        continue;
-      }
-
-
-      // ========================================
-      // ST
-      // ========================================
+      if (!/^(?:[1-9]|1[0-2])$/.test(raceNoText)) continue;
+      if (!/^[1-6]$/.test(courseText)) continue;
 
       let st = null;
       let flying = false;
 
-
       if (/^F/.test(stText)) {
-
         flying = true;
-
-        const value =
-          Number(
-            stText.replace(/^F/, '')
-          );
-
-        if (Number.isFinite(value)) {
-          st = -value;
-        }
-
-      } else {
-
-        const value =
-          Number(stText);
-
-        if (Number.isFinite(value)) {
-          st = value;
-        }
-
+        const value = Number(stText.replace(/^F/, ''));
+        if (Number.isFinite(value)) st = -value;
+      } else if (/^(?:\d+)?\.\d+$/.test(stText)) {
+        const value = Number(stText);
+        if (Number.isFinite(value)) st = value;
       }
-
-
-      // ========================================
-      // 着順
-      // ========================================
 
       let finish = null;
       let finishCode = null;
 
+      const normalizedFinish = finishText
+        .replace(/１/g, '1')
+        .replace(/２/g, '2')
+        .replace(/３/g, '3')
+        .replace(/４/g, '4')
+        .replace(/５/g, '5')
+        .replace(/６/g, '6');
 
-      const normalizedFinish =
-        finishText
-          .replace(/１/g, '1')
-          .replace(/２/g, '2')
-          .replace(/３/g, '3')
-          .replace(/４/g, '4')
-          .replace(/５/g, '5')
-          .replace(/６/g, '6');
-
-
-      if (
-        /^[1-6]$/.test(
-          normalizedFinish
-        )
-      ) {
-
-        finish =
-          Number(normalizedFinish);
-
+      if (/^[1-6]$/.test(normalizedFinish)) {
+        finish = Number(normalizedFinish);
       } else if (finishText) {
-
-        // エ・妨・失・転・沈など
-        finishCode =
-          finishText;
-
+        finishCode = finishText;
       }
 
-
       races.push({
-
-        // 元表の列位置も保存
-        // 後で開催日ごとに分離するために使う
         meetColumn: i,
-
-        raceNo:
-          Number(raceNoText),
-
-        course:
-          Number(courseText),
-
+        raceNo: Number(raceNoText),
+        course: Number(courseText),
         st,
-
         flying,
-
         finish,
-
         finishCode
-
       });
-
     }
 
+    const validSTs = races
+      .filter(r => r.st !== null && !r.flying)
+      .map(r => r.st);
 
-    // ========================================
-    // 今節平均ST
-    // ========================================
-
-    const validSTs =
-      races
-        .filter(r =>
-          r.st !== null &&
-          !r.flying
-        )
-        .map(r => r.st);
-
-
-    const avgST =
-      validSTs.length
-        ? Number(
-            (
-              validSTs.reduce(
-                (sum, value) =>
-                  sum + value,
-                0
-              ) /
-              validSTs.length
-            ).toFixed(3)
-          )
-        : null;
-
+    const avgST = validSTs.length
+      ? Number((validSTs.reduce((sum, value) => sum + value, 0) / validSTs.length).toFixed(3))
+      : null;
 
     return {
-
-      // 現段階では「公式表に掲載されている全履歴」
-      // 予想エンジンにはまだ直接渡さない
       races,
-
       avgST,
-
-      // STEP2-2Bで
-      // 予想時点以前だけに分離する予定
+      // 今節全履歴なので、予想入力にはまだ直接使わない。
+      // STEP2-2Bで予想時点以前だけに分離する。
       predictionSafe: false
-
     };
 
-
   } catch (e) {
-
     return {
       races: [],
       avgST: null,
       predictionSafe: false,
-      error:
-        String(
-          e.message || e
-        )
+      error: String(e.message || e)
     };
-
   }
-
 }
 
 // ========================================
@@ -914,49 +700,6 @@ app.get('/api/race', async (req, res) => {
     });
 
 
-    // ========================================
-    // DEBUG STEP2-2 HTML表構造確認
-    // 滝沢芳行だけ取得
-    // ========================================
-
-    const debugMeetTable = [];
-
-    $('tr').each((rowIndex, tr) => {
-
-      const rowText = clean($(tr).text());
-
-      if (
-        rowText.includes('3381') ||
-        (
-          debugMeetTable.length > 0 &&
-          debugMeetTable.length < 4
-        )
-      ) {
-
-        const cells = [];
-
-        $(tr).children('td').each((cellIndex, td) => {
-
-          cells.push({
-            cellIndex,
-            text: clean($(td).text()),
-            colspan: Number($(td).attr('colspan')) || 1,
-            rowspan: Number($(td).attr('rowspan')) || 1,
-            className: $(td).attr('class') || ''
-          });
-
-        });
-
-        debugMeetTable.push({
-          rowIndex,
-          cells
-        });
-
-      }
-
-    });
-
-
     racers.sort(
       (a, b) => a.lane - b.lane
     );
@@ -1034,7 +777,7 @@ racers.forEach((racer, index) => {
 
       ok: true,
 
-      version: '1.3-step2-2-debug',
+      version: '1.4-step2-2a-fixed',
 
       source: url,
 
@@ -1044,7 +787,6 @@ racers.forEach((racer, index) => {
 
       rno: Number(rno),
 
-      debugMeetTable,
 
       racers
 

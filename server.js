@@ -38,7 +38,7 @@ async function officialFetch(url) {
 }
 
 // ========================================
-// STEP2-1 コース別成績
+// STEP2-1 コース別成績 v0.8
 // ========================================
 
 async function fetchCourseStats(registration) {
@@ -51,123 +51,111 @@ async function fetchCourseStats(registration) {
     const html = await officialFetch(url);
     const $ = cheerio.load(html);
 
+    const bodyText = clean($('body').text());
+
     const result = {
       registration,
       source: url,
       courses: {}
     };
 
-    // 公式ページ内のテーブルを確認
-    const rows = [];
-
-    $('tr').each((_, tr) => {
-
-      const cells = $(tr)
-        .find('th,td')
-        .map((_, cell) => clean($(cell).text()))
-        .get()
-        .filter(Boolean);
-
-      if (cells.length) {
-        rows.push(cells);
-      }
-
-    });
-
-
-    // まずは公式ページから取得できる
-    // コース別の数値を安全に保持する。
-    //
-    // HTML構造が変わった場合は
-    // 推測せず null にする。
-
+    // 初期値
     for (let course = 1; course <= 6; course++) {
 
       result.courses[String(course)] = {
-
         entryRate: null,
         trioRate: null,
         avgST: null,
         avgStartRank: null
-
       };
 
     }
 
 
     // ========================================
-    // 表の行を解析
+    // 指定した項目の範囲だけ切り出す
     // ========================================
-
-    const bodyText = clean($('body').text());
-
 
     function getSection(startLabel, endLabel) {
 
-      const start =
-        bodyText.indexOf(startLabel);
+      const start = bodyText.indexOf(startLabel);
 
       if (start < 0) {
         return '';
       }
 
-      const from =
-        start + startLabel.length;
+      const from = start + startLabel.length;
 
-      const end =
-        endLabel
-          ? bodyText.indexOf(
-              endLabel,
-              from
-            )
-          : -1;
+      const end = endLabel
+        ? bodyText.indexOf(endLabel, from)
+        : -1;
 
       return bodyText.slice(
         from,
-        end >= 0
-          ? end
-          : undefined
+        end >= 0 ? end : undefined
       );
 
     }
 
 
-    function extractSixValues(text) {
+    // ========================================
+    // 「コース番号 → 値」のペアとして取得
+    //
+    // 例:
+    // 1 14.9
+    // 2 17.8
+    // 3 17.8
+    //
+    // ↓
+    //
+    // {
+    //   1:14.9,
+    //   2:17.8,
+    //   3:17.8
+    // }
+    //
+    // ========================================
+
+    function extractCoursePairs(text) {
+
+      const values = {};
 
       if (!text) {
-        return null;
+        return values;
       }
 
-      const values =
-        text.match(
-          /-?\d+(?:\.\d+)?/g
-        );
+      const re =
+        /(?:^|\s)([1-6])\s+(-|\d+(?:\.\d+)?)\s*%?/g;
 
-      if (!values) {
-        return null;
+      let match;
+
+      while ((match = re.exec(text)) !== null) {
+
+        const course = match[1];
+
+        const value =
+          match[2] === '-'
+            ? null
+            : Number(match[2]);
+
+        // 同じコース番号を後から上書きしない
+        if (!(course in values)) {
+          values[course] = value;
+        }
+
       }
 
-      const numbers =
-        values
-          .map(Number)
-          .filter(v =>
-            Number.isFinite(v)
-          );
-
-
-      // 6コース分揃っていない場合は
-      // 無理に推測しない
-      if (numbers.length < 6) {
-        return null;
-      }
-
-      return numbers.slice(0, 6);
+      return values;
 
     }
 
 
+    // ========================================
+    // 4項目を個別取得
+    // ========================================
+
     const entryRates =
-      extractSixValues(
+      extractCoursePairs(
         getSection(
           'コース別進入率',
           'コース別3連対率'
@@ -176,7 +164,7 @@ async function fetchCourseStats(registration) {
 
 
     const trioRates =
-      extractSixValues(
+      extractCoursePairs(
         getSection(
           'コース別3連対率',
           'コース別平均スタートタイミング'
@@ -185,7 +173,7 @@ async function fetchCourseStats(registration) {
 
 
     const avgSTs =
-      extractSixValues(
+      extractCoursePairs(
         getSection(
           'コース別平均スタートタイミング',
           'コース別スタート順'
@@ -194,46 +182,87 @@ async function fetchCourseStats(registration) {
 
 
     const startRanks =
-      extractSixValues(
+      extractCoursePairs(
         getSection(
           'コース別スタート順',
-          null
+          '集計期間内にデータがない場合'
         )
       );
 
 
-    for (
-      let course = 1;
-      course <= 6;
-      course++
-    ) {
+    // ========================================
+    // 6コースへ格納
+    // ========================================
 
-      const key =
-        String(course);
+    for (let course = 1; course <= 6; course++) {
 
-      const index =
-        course - 1;
-
+      const key = String(course);
 
       result.courses[key] = {
 
         entryRate:
-          entryRates?.[index]
-          ?? null,
+          Object.prototype.hasOwnProperty.call(entryRates, key)
+            ? entryRates[key]
+            : null,
 
         trioRate:
-          trioRates?.[index]
-          ?? null,
+          Object.prototype.hasOwnProperty.call(trioRates, key)
+            ? trioRates[key]
+            : null,
 
         avgST:
-          avgSTs?.[index]
-          ?? null,
+          Object.prototype.hasOwnProperty.call(avgSTs, key)
+            ? avgSTs[key]
+            : null,
 
         avgStartRank:
-          startRanks?.[index]
-          ?? null
+          Object.prototype.hasOwnProperty.call(startRanks, key)
+            ? startRanks[key]
+            : null
 
       };
+
+    }
+
+
+    // ========================================
+    // 安全チェック
+    //
+    // 変な値を拾った場合は
+    // 推測して使わず null にする
+    // ========================================
+
+    for (let course = 1; course <= 6; course++) {
+
+      const c = result.courses[String(course)];
+
+      if (
+        c.entryRate !== null &&
+        (c.entryRate < 0 || c.entryRate > 100)
+      ) {
+        c.entryRate = null;
+      }
+
+      if (
+        c.trioRate !== null &&
+        (c.trioRate < 0 || c.trioRate > 100)
+      ) {
+        c.trioRate = null;
+      }
+
+      if (
+        c.avgST !== null &&
+        (c.avgST < 0 || c.avgST > 1)
+      ) {
+        c.avgST = null;
+      }
+
+      if (
+        c.avgStartRank !== null &&
+        (c.avgStartRank < 1 || c.avgStartRank > 6)
+      ) {
+        c.avgStartRank = null;
+      }
 
     }
 
@@ -243,19 +272,14 @@ async function fetchCourseStats(registration) {
 
   } catch (e) {
 
+    // コース別取得が失敗しても
+    // STEP1本体は止めない
+
     return {
-
       registration,
-
       source: url,
-
       courses: null,
-
-      error:
-        String(
-          e.message || e
-        )
-
+      error: String(e.message || e)
     };
 
   }
@@ -638,7 +662,7 @@ racers.forEach((racer, index) => {
 
       ok: true,
 
-      version: '0.7-step2-1',
+      version: '0.8-step2-1-fix',
 
       source: url,
 

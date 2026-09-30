@@ -287,11 +287,10 @@ async function fetchCourseStats(registration) {
 }
 
 // ========================================
-// STEP2-2A 今節成績 v1.4
-// HTML実構造確定版
+// STEP2-2A / 2B 今節成績 + 予想時点フィルター v1.5
 // ========================================
 
-function extractCurrentMeet($, tr) {
+function extractCurrentMeet($, tr, meetDates, targetDate, targetRno) {
 
   try {
 
@@ -301,7 +300,11 @@ function extractCurrentMeet($, tr) {
     const finishRow = stRow.next('tr');
 
     if (!courseRow.length || !stRow.length || !finishRow.length) {
-      return { races: [], avgST: null, predictionSafe: false };
+      return {
+        all: { races: [], avgST: null, predictionSafe: false },
+        safe: { races: [], avgST: null, predictionSafe: true },
+        previousRace: null
+      };
     }
 
     const getCells = row =>
@@ -312,9 +315,8 @@ function extractCurrentMeet($, tr) {
     const stCells = getCells(stRow);
     const finishCells = getCells(finishRow);
 
-    // 公式racelistの実構造：
-    // 選手本体行は cellIndex 0〜8 が基本情報、9〜22 が今節欄、23 が早見。
-    // 下3行は rowspan の基本情報セルが省略され、0〜13 が今節欄。
+    // 選手本体行: 0〜8 基本情報 / 9〜22 今節欄 / 23 早見
+    // 下3行: 0〜13 今節欄
     const raceNos = mainCells.slice(9, 23);
     const courses = courseCells.slice(0, 14);
     const sts = stCells.slice(0, 14);
@@ -361,8 +363,14 @@ function extractCurrentMeet($, tr) {
         finishCode = finishText;
       }
 
+      // 公式表は1日につき最大2走分の列を持つ。
+      // meetColumn 0,1 = 初日 / 2,3 = 2日目 ...
+      const dayIndex = Math.floor(i / 2);
+      const raceDate = meetDates[dayIndex] || null;
+
       races.push({
         meetColumn: i,
+        raceDate,
         raceNo: Number(raceNoText),
         course: Number(courseText),
         st,
@@ -372,27 +380,63 @@ function extractCurrentMeet($, tr) {
       });
     }
 
-    const validSTs = races
-      .filter(r => r.st !== null && !r.flying)
-      .map(r => r.st);
+    const calcAvgST = list => {
+      const values = list
+        .filter(r => r.st !== null && !r.flying)
+        .map(r => r.st);
 
-    const avgST = validSTs.length
-      ? Number((validSTs.reduce((sum, value) => sum + value, 0) / validSTs.length).toFixed(3))
+      return values.length
+        ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(3))
+        : null;
+    };
+
+    const safeRaces = races.filter(r => {
+      if (!r.raceDate) return false;
+      if (r.raceDate < targetDate) return true;
+      if (r.raceDate > targetDate) return false;
+      return r.raceNo < targetRno;
+    });
+
+    // 時系列順で最後の1走を「前走」とする。
+    // 同日ならレース番号が大きい方が後。
+    const chronologicalSafe = [...safeRaces].sort((a, b) => {
+      if (a.raceDate !== b.raceDate) return a.raceDate.localeCompare(b.raceDate);
+      return a.raceNo - b.raceNo;
+    });
+
+    const last = chronologicalSafe.at(-1) || null;
+
+    const previousRace = last
+      ? {
+          date: last.raceDate,
+          raceNo: last.raceNo,
+          course: last.course,
+          st: last.st,
+          flying: last.flying,
+          finish: last.finish,
+          finishCode: last.finishCode
+        }
       : null;
 
     return {
-      races,
-      avgST,
-      // 今節全履歴なので、予想入力にはまだ直接使わない。
-      // STEP2-2Bで予想時点以前だけに分離する。
-      predictionSafe: false
+      all: {
+        races,
+        avgST: calcAvgST(races),
+        predictionSafe: false
+      },
+      safe: {
+        races: chronologicalSafe,
+        avgST: calcAvgST(chronologicalSafe),
+        predictionSafe: true
+      },
+      previousRace
     };
 
   } catch (e) {
     return {
-      races: [],
-      avgST: null,
-      predictionSafe: false,
+      all: { races: [], avgST: null, predictionSafe: false },
+      safe: { races: [], avgST: null, predictionSafe: true },
+      previousRace: null,
       error: String(e.message || e)
     };
   }
@@ -431,6 +475,18 @@ app.get('/api/race', async (req, res) => {
     const html = await officialFetch(url);
 
     const $ = cheerio.load(html);
+
+    // 開催日リンクから今節の日付を取得（例: 20260926〜20260930）
+    const meetDates = [...new Set(
+      $('a[href]').map((_, a) => {
+        const href = $(a).attr('href') || '';
+        const m = href.match(/[?&]hd=(\d{8})(?:&|$)/);
+        const j = href.match(/[?&]jcd=(\d{2})(?:&|$)/);
+        return m && (!j || j[1] === jcd) ? m[1] : null;
+      }).get().filter(Boolean)
+    )]
+      .filter(d => d <= date)
+      .sort();
 
     const racers = [];
 
@@ -623,8 +679,12 @@ app.get('/api/race', async (req, res) => {
 
       };
 
-      const currentMeet =
-        extractCurrentMeet($, tr);
+      const meetData =
+        extractCurrentMeet($, tr, meetDates, date, Number(rno));
+
+      const currentMeet = meetData.all;
+      const currentMeetSafe = meetData.safe;
+      const previousRace = meetData.previousRace;
       
       racers.push({
 
@@ -651,6 +711,10 @@ app.get('/api/race', async (req, res) => {
         avgST,
 
         currentMeet,
+
+        currentMeetSafe,
+
+        previousRace,
         
         national: {
 
@@ -777,7 +841,7 @@ racers.forEach((racer, index) => {
 
       ok: true,
 
-      version: '1.4-step2-2a-fixed',
+      version: '1.5-step2-2b-safe',
 
       source: url,
 
@@ -787,6 +851,7 @@ racers.forEach((racer, index) => {
 
       rno: Number(rno),
 
+      meetDates,
 
       racers
 

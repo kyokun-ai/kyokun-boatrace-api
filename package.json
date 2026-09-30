@@ -1,0 +1,1 @@
+{"name":"kyokun-boatrace-api","version":"0.1.0","type":"module","scripts":{"start":"node server.js"},"dependencies":{"cheerio":"^1.0.0","express":"^4.21.0"},"engines":{"node":">=18"}}

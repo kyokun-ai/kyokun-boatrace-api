@@ -5,6 +5,23 @@ const app = express();
 
 app.use(express.json({ limit: '1mb' }));
 
+
+const BOATRACE_VENUES = {
+  '01':'桐生','02':'戸田','03':'江戸川','04':'平和島','05':'多摩川','06':'浜名湖',
+  '07':'蒲郡','08':'常滑','09':'津','10':'三国','11':'びわこ','12':'住之江',
+  '13':'尼崎','14':'鳴門','15':'丸亀','16':'児島','17':'宮島','18':'徳山',
+  '19':'下関','20':'若松','21':'芦屋','22':'福岡','23':'唐津','24':'大村'
+};
+
+function classifyOfficialRacePage($, html, racersCount = 0) {
+  const text = clean($('body').text());
+  const hasRaceNav = /(?:1R|１R)/.test(text) && /(?:12R|１２R)/.test(text);
+  const hasRacerHeader = text.includes('ボートレーサー') || text.includes('登録番号');
+  if (racersCount === 6) return { status:'ready', message:'出走データ取得済み' };
+  if (!hasRaceNav && !hasRacerHeader) return { status:'not_held', message:'この日、この場は開催データがありません' };
+  return { status:'parse_error', message:`公式ページはありますが選手を6艇取得できませんでした (${racersCount}/6)` };
+}
+
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   next();
@@ -887,26 +904,19 @@ app.get('/api/race', async (req, res) => {
     // ========================================
 
     if (racers.length !== 6) {
-
-      return res.status(422).json({
-
+      const pageState = classifyOfficialRacePage($, html, racers.length);
+      const statusCode = pageState.status === 'not_held' ? 404 : 422;
+      return res.status(statusCode).json({
         ok: false,
-
-        error:
-          `Racer extraction incomplete: ${racers.length}/6`,
-
+        status: pageState.status,
+        error: pageState.message,
+        venue: BOATRACE_VENUES[jcd] || jcd,
         source: url,
-
         date,
-
         jcd,
-
         rno: Number(rno),
-
         racers
-
       });
-
     }
 
     // ========================================
@@ -999,7 +1009,11 @@ racers.forEach(racer => {
 
       ok: true,
 
-      version: '2.3-step2-4-safecheck',
+      version: '2.5-step3-national',
+
+      status: 'ready',
+
+      venue: BOATRACE_VENUES[jcd] || jcd,
 
       source: url,
 
@@ -1240,9 +1254,25 @@ app.get('/api/beforeinfo', async (req, res) => {
       windDirection: null
     };
 
+    if (racers.length !== 6 || startExhibition.length !== 6) {
+      return res.status(409).json({
+        ok: false,
+        status: 'beforeinfo_not_ready',
+        version: '2.5-step3-national',
+        venue: BOATRACE_VENUES[jcd] || jcd,
+        source,
+        date,
+        jcd,
+        rno,
+        message: '直前情報がまだ揃っていません。展示後にもう一度お試しください。'
+      });
+    }
+
     res.json({
       ok: true,
-      version: '2.1-step2-3b-weather-entryfix',
+      status: 'ready',
+      version: '2.5-step3-national',
+      venue: BOATRACE_VENUES[jcd] || jcd,
       source,
       date,
       jcd,
@@ -1486,7 +1516,7 @@ app.post('/api/predict', (req, res) => {
 
     res.json({
       ok: true,
-      version: '2.4-step3-kyokun-prototype',
+      version: '2.5-step3-national',
       predictionSafe: true,
       oddsUsed: false,
       date: race.date,
@@ -1510,7 +1540,7 @@ app.post('/api/predict', (req, res) => {
     console.error('predict error:', error);
     res.status(500).json({
       ok: false,
-      version: '2.4-step3-kyokun-prototype',
+      version: '2.5-step3-national',
       error: error.message
     });
   }

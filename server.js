@@ -8,203 +8,486 @@ app.use((req, res, next) => {
   next();
 });
 
+// 今まで通りトップページのHTMLも表示
 app.use(express.static('.'));
 
-const clean = (s) =>
-  (s ?? '')
-    .replace(/\u3000/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+const clean = s => (s ?? '')
+  .replace(/\u3000/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
 
-const n = (value) => {
-  if (value === undefined || value === null || value === '-') return null;
-  const x = Number(value);
-  return Number.isFinite(x) ? x : null;
+const officialFetch = async url => {
+  const r = await fetch(url, {
+    headers: {
+      'user-agent': 'Mozilla/5.0 KyokunResearch/0.5',
+      'accept-language': 'ja,en;q=0.8'
+    }
+  });
+
+  if (!r.ok) {
+    throw new Error(`official HTTP ${r.status}`);
+  }
+
+  return await r.text();
 };
+
+
+// ======================================================
+// STEP2-1
+// 選手ごとのコース別成績を取得
+// 失敗しても /api/race 全体は壊さない
+// ======================================================
+
+async function fetchCourseStats(registration) {
+
+  const url =
+    `https://www.boatrace.jp/owpc/pc/data/racersearch/course?toban=${registration}`;
+
+  try {
+
+    const html = await officialFetch(url);
+    const $ = cheerio.load(html);
+
+    const text = clean($('body').text());
+
+    const section = (startLabel, endLabel) => {
+
+      const start = text.indexOf(startLabel);
+
+      if (start < 0) return '';
+
+      const from = start + startLabel.length;
+
+      const end = endLabel
+        ? text.indexOf(endLabel, from)
+        : -1;
+
+      return text.slice(
+        from,
+        end >= 0 ? end : undefined
+      );
+    };
+
+
+    // 1～6コースの値を取り出す
+    const sixValues = s => {
+
+      const out = Array(6).fill(null);
+
+      const re =
+        /(?:^|\s)([1-6])\s+(-|\d+(?:\.\d+)?)\s*%?/g;
+
+      let m;
+
+      while ((m = re.exec(s))) {
+
+        out[Number(m[1]) - 1] =
+          m[2] === '-'
+            ? null
+            : Number(m[2]);
+      }
+
+      return out;
+    };
+
+
+    // コース別進入率
+    const entry = sixValues(
+      section(
+        'コース別進入率',
+        'コース別3連対率'
+      )
+    );
+
+
+    // コース別3連対率
+    const trio = sixValues(
+      section(
+        'コース別3連対率',
+        'コース別平均スタートタイミング'
+      )
+    );
+
+
+    // コース別平均ST
+    const avgST = sixValues(
+      section(
+        'コース別平均スタートタイミング',
+        'コース別スタート順'
+      )
+    );
+
+
+    // コース別平均スタート順位
+    const startRank = sixValues(
+      section(
+        'コース別スタート順',
+        '集計期間内にデータがない場合'
+      )
+    );
+
+
+    const courses = {};
+
+    for (let i = 0; i < 6; i++) {
+
+      courses[String(i + 1)] = {
+
+        entryRate: entry[i],
+
+        trioRate: trio[i],
+
+        avgST: avgST[i],
+
+        avgStartRank: startRank[i]
+      };
+    }
+
+
+    return {
+      source: url,
+      courses
+    };
+
+  } catch (e) {
+
+    return {
+      source: url,
+      error: String(e.message || e),
+      courses: null
+    };
+  }
+}
+
+
+
+// ======================================================
+// 出走表API
+// ======================================================
 
 app.get('/api/race', async (req, res) => {
 
-  const { date, jcd, rno } = req.query;
+  const {
+    date,
+    jcd,
+    rno
+  } = req.query;
+
 
   if (
     !/^\d{8}$/.test(date || '') ||
     !/^\d{2}$/.test(jcd || '') ||
     !/^(?:[1-9]|1[0-2])$/.test(rno || '')
   ) {
+
     return res.status(400).json({
+
       ok: false,
-      error: 'date(YYYYMMDD), jcd(01-24), rno(1-12) are required'
+
+      error:
+        'date(YYYYMMDD), jcd(01-24), rno(1-12) are required'
     });
   }
 
+
   const url =
-    `https://www.boatrace.jp/owpc/pc/race/racelist` +
-    `?hd=${date}&jcd=${jcd}&rno=${rno}`;
+    `https://www.boatrace.jp/owpc/pc/race/racelist?hd=${date}&jcd=${jcd}&rno=${rno}`;
+
 
   try {
 
-    const rr = await fetch(url, {
-      headers: {
-        'user-agent': 'Mozilla/5.0',
-        'accept-language': 'ja-JP,ja;q=0.9'
-      }
-    });
+    const html = await officialFetch(url);
 
-    if (!rr.ok) {
-      throw new Error(`Official HTTP ${rr.status}`);
-    }
-
-    const html = await rr.text();
     const $ = cheerio.load(html);
 
     const racers = [];
 
+
     $('tr').each((_, tr) => {
 
-      const cells = [];
+      if (racers.length >= 6) return;
 
-      $(tr).find('td').each((__, td) => {
-        cells.push(clean($(td).text()));
-      });
 
-      if (cells.length < 8) return;
+      const t = clean($(tr).text());
 
-      // 「登録番号 / 級別」を持つセルを探す
-      const racerCellIndex = cells.findIndex((x) =>
-        /\d{4}\s*\/\s*(A1|A2|B1|B2)/.test(x)
+
+      const head = t.match(
+        /(?:^|\s)([1-6])\s+(\d{4})\s*\/\s*(A1|A2|B1|B2)\s+/
       );
 
-      if (racerCellIndex === -1) return;
 
-      const racerCell = cells[racerCellIndex];
+      if (!head) return;
 
-      const racerMatch = racerCell.match(
-        /(\d{4})\s*\/\s*(A1|A2|B1|B2)\s+(.+?)\s+([^\/\s]+)\/([^\s]+)\s+(\d+)歳\/([\d.]+)kg/
-      );
-
-      if (!racerMatch) return;
-
-      // 選手セルの直前が枠番
-      const laneText = cells
-        .slice(0, racerCellIndex)
-        .find((x) => /^[１-６1-6]$/.test(x));
-
-      const fullToHalf = {
-        '１': 1,
-        '２': 2,
-        '３': 3,
-        '４': 4,
-        '５': 5,
-        '６': 6
-      };
 
       const lane =
-        fullToHalf[laneText] ||
-        Number(laneText);
+        Number(head[1]);
 
-      if (!lane || lane < 1 || lane > 6) return;
+      const registration =
+        head[2];
 
-      const statusCell = cells[racerCellIndex + 1] || '';
+      const rank =
+        head[3];
 
-      const status = statusCell.match(
-        /F(\d+)\s+L(\d+)\s+([0-9.]+|-)/
+
+      const after =
+        t.slice(
+          t.indexOf(registration) +
+          registration.length
+        );
+
+
+      const main = after.match(
+        /^\s*\/\s*(A1|A2|B1|B2)\s+(.+?)\s+([^\/\s]+)\/([^\s]+)\s+(\d+)歳\/([\d.]+)kg\s+F(\d+)\s+L(\d+)\s+([0-9.]+|-)\s+/
       );
 
-      if (!status) return;
 
-      const national = (cells[racerCellIndex + 2] || '')
-        .split(/\s+/);
+      if (!main) return;
 
-      const local = (cells[racerCellIndex + 3] || '')
-        .split(/\s+/);
 
-      const motor = (cells[racerCellIndex + 4] || '')
-        .split(/\s+/);
+      const name =
+        clean(main[2]);
 
-      const boat = (cells[racerCellIndex + 5] || '')
-        .split(/\s+/);
+      const branch =
+        clean(main[3]);
+
+      const birthplace =
+        clean(main[4]);
+
+      const age =
+        Number(main[5]);
+
+      const weight =
+        Number(main[6]);
+
+      const F =
+        Number(main[7]);
+
+      const L =
+        Number(main[8]);
+
+      const avgST =
+        main[9] === '-'
+          ? null
+          : Number(main[9]);
+
+
+      const marker =
+        `F${F} L${L} ${main[9]}`;
+
+
+      const pos =
+        t.indexOf(marker);
+
+
+      const rest =
+        pos >= 0
+          ? t.slice(pos + marker.length)
+          : '';
+
+
+      const vals =
+        (
+          rest.match(
+            /(?:^|\s)(-|\d+(?:\.\d+)?)(?=\s|$)/g
+          ) || []
+        )
+        .map(v => v.trim())
+        .slice(0, 12);
+
+
+      const v = i =>
+        vals[i] === '-' ||
+        vals[i] == null
+          ? null
+          : Number(vals[i]);
+
 
       racers.push({
+
         lane,
 
-        registration: racerMatch[1],
-        rank: racerMatch[2],
-        name: clean(racerMatch[3]),
+        registration,
 
-        branch: clean(racerMatch[4]),
-        birthplace: clean(racerMatch[5]),
+        rank,
 
-        age: n(racerMatch[6]),
-        weight: n(racerMatch[7]),
+        name,
 
-        F: n(status[1]),
-        L: n(status[2]),
-        avgST: n(status[3]),
+        branch,
+
+        birthplace,
+
+        age,
+
+        weight,
+
+        F,
+
+        L,
+
+        avgST,
+
 
         national: {
-          winRate: n(national[0]),
-          quinellaRate: n(national[1]),
-          trioRate: n(national[2])
+
+          winRate: v(0),
+
+          quinellaRate: v(1),
+
+          trioRate: v(2)
         },
+
 
         local: {
-          winRate: n(local[0]),
-          quinellaRate: n(local[1]),
-          trioRate: n(local[2])
+
+          winRate: v(3),
+
+          quinellaRate: v(4),
+
+          trioRate: v(5)
         },
+
 
         motor: {
-          no: n(motor[0]),
-          quinellaRate: n(motor[1]),
-          trioRate: n(motor[2])
+
+          no: v(6),
+
+          quinellaRate: v(7),
+
+          trioRate: v(8)
         },
 
+
         boat: {
-          no: n(boat[0]),
-          quinellaRate: n(boat[1]),
-          trioRate: n(boat[2])
+
+          no: v(9),
+
+          quinellaRate: v(10),
+
+          trioRate: v(11)
         }
+
       });
 
     });
 
-    racers.sort((a, b) => a.lane - b.lane);
+
+    racers.sort(
+      (a, b) =>
+        a.lane - b.lane
+    );
+
 
     if (racers.length !== 6) {
+
       return res.status(422).json({
+
         ok: false,
-        version: '0.4',
-        error: `Racer extraction incomplete: ${racers.length}/6`,
+
+        error:
+          racers.length === 0
+
+            ? 'No 6-racer entry table found. The venue may be non-racing today, or the official page structure changed.'
+
+            : `Racer extraction incomplete: ${racers.length}/6`,
+
         source: url,
+
+        date,
+
+        jcd,
+
+        rno: Number(rno),
+
         racers
       });
     }
 
-    res.json({
-      ok: true,
-      version: '0.4',
-      source: url,
-      date,
-      jcd,
-      rno: Number(rno),
-      racers
+
+
+    // ==================================================
+    // 6選手のコース別データを並列取得
+    // ==================================================
+
+    const courseResults =
+      await Promise.all(
+
+        racers.map(
+          r =>
+            fetchCourseStats(
+              r.registration
+            )
+        )
+
+      );
+
+
+    racers.forEach((r, i) => {
+
+      r.courseStats =
+        courseResults[i]?.courses
+        ?? null;
+
+
+      if (courseResults[i]?.error) {
+
+        r.courseStatsError =
+          courseResults[i].error;
+      }
+
     });
+
+
+
+    res.json({
+
+      ok: true,
+
+      version:
+        '0.5-step2-1',
+
+      source: url,
+
+      date,
+
+      jcd,
+
+      rno:
+        Number(rno),
+
+      racers
+
+    });
+
 
   } catch (e) {
 
     res.status(502).json({
+
       ok: false,
-      version: '0.4',
-      error: String(e.message || e),
+
+      error:
+        String(
+          e.message || e
+        ),
+
       source: url
+
     });
 
   }
 
 });
 
-const port = process.env.PORT || 3000;
 
-app.listen(port, () => {
-  console.log(`Kyokun API v0.4 on ${port}`);
-});
+
+const port =
+  process.env.PORT || 3000;
+
+
+app.listen(
+  port,
+  () =>
+    console.log(
+      `Kyokun API STEP2-1 on ${port}`
+    )
+);

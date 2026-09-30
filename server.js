@@ -839,8 +839,8 @@ racers.forEach((racer, index) => {
 
     return 
     // ========================================
-    // STEP2-3A DEBUG
-    // 直前情報(beforeinfo)の実HTML構造を確認
+    // STEP2-3A LIGHT DEBUG
+    // beforeinfo のテーブル構造だけを軽量確認
     // ========================================
     const beforeInfoUrl =
       `https://www.boatrace.jp/owpc/pc/race/beforeinfo?hd=${date}&jcd=${jcd}&rno=${rno}`;
@@ -851,51 +851,46 @@ racers.forEach((racer, index) => {
       const beforeHtml = await officialFetch(beforeInfoUrl);
       const $before = cheerio.load(beforeHtml);
 
-      const rows = [];
-      $before('tr').each((rowIndex, tr) => {
-        const cells = [];
-        $before(tr).children('th,td').each((cellIndex, cell) => {
-          const $cell = $before(cell);
-          cells.push({
-            cellIndex,
-            tag: cell.tagName || cell.name || '',
-            text: clean($cell.text()),
-            colspan: Number($cell.attr('colspan')) || 1,
-            rowspan: Number($cell.attr('rowspan')) || 1,
-            className: $cell.attr('class') || ''
+      const tables = [];
+
+      $before('table').each((tableIndex, table) => {
+        const rows = [];
+
+        $before(table).find('tr').each((rowIndex, tr) => {
+          const cells = [];
+
+          $before(tr).children('th,td').each((cellIndex, cell) => {
+            const $cell = $before(cell);
+            const text = clean($cell.text());
+
+            // Empty cells are still kept because column alignment matters.
+            cells.push({
+              cellIndex,
+              tag: cell.tagName || cell.name || '',
+              text,
+              colspan: Number($cell.attr('colspan')) || 1,
+              rowspan: Number($cell.attr('rowspan')) || 1
+            });
           });
+
+          if (cells.length) rows.push({ rowIndex, cells });
         });
 
-        if (cells.length) rows.push({ rowIndex, cells });
-      });
-
-      const keywords = [
-        '展示', 'チルト', '調整重量', '気温', '水温',
-        '風向', '風速', '波高', '部品', 'プロペラ'
-      ];
-
-      const keywordElements = [];
-      $before('body *').each((elementIndex, el) => {
-        const $el = $before(el);
-        const ownText = clean(
-          $el.clone().children().remove().end().text()
-        );
-
-        if (ownText && keywords.some(k => ownText.includes(k))) {
-          keywordElements.push({
-            elementIndex,
-            tag: el.tagName || el.name || '',
-            text: ownText,
-            className: $el.attr('class') || '',
-            id: $el.attr('id') || ''
+        if (rows.length) {
+          // Limit each table to avoid giant debug JSON.
+          tables.push({
+            tableIndex,
+            className: $before(table).attr('class') || '',
+            rows: rows.slice(0, 40)
           });
         }
       });
 
       debugBeforeInfo = {
         url: beforeInfoUrl,
-        rows,
-        keywordElements: keywordElements.slice(0, 200)
+        tableCount: tables.length,
+        // Limit number of tables too. This is only a one-time structure check.
+        tables: tables.slice(0, 20)
       };
     } catch (error) {
       debugBeforeInfo = {
@@ -909,7 +904,7 @@ res.json({
 
       ok: true,
 
-      version: '1.6-step2-3a-debug',
+      version: '1.6L-step2-3a-light-debug',
 
       source: url,
 

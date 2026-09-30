@@ -287,175 +287,158 @@ async function fetchCourseStats(registration) {
 }
 
 // ========================================
-// STEP2-2A 今節成績 v1.1
+// STEP2-2A 今節成績 v1.2
+// colspan / 空白列保持版
 // ========================================
 
 function extractCurrentMeet($, tr) {
 
   try {
 
-    // 選手本体行
-    const mainCells = $(tr)
-      .find('td')
-      .map((_, td) => clean($(td).text()))
-      .get();
+    // ----------------------------------------
+    // 1つのtrを「見た目の列数」に展開する
+    //
+    // colspan=3 なら
+    // [値, "", ""]
+    //
+    // として空白列を保持する
+    // ----------------------------------------
 
-    // 今節成績は次の3行に続く
-    const courseRow = $(tr).next('tr');
-    const stRow = courseRow.next('tr');
-    const finishRow = stRow.next('tr');
+    function expandRow(row) {
+
+      const result = [];
+
+      $(row).children('td').each((_, td) => {
+
+        const text = clean($(td).text());
+
+        const colspan =
+          Math.max(
+            1,
+            Number($(td).attr('colspan')) || 1
+          );
+
+        result.push(text);
+
+        for (let i = 1; i < colspan; i++) {
+          result.push('');
+        }
+
+      });
+
+      return result;
+    }
+
+
+    // ----------------------------------------
+    // 選手本体 + 下3行
+    // ----------------------------------------
+
+    const mainRow = $(tr);
+
+    const courseRow =
+      mainRow.next('tr');
+
+    const stRow =
+      courseRow.next('tr');
+
+    const finishRow =
+      stRow.next('tr');
+
 
     if (
       !courseRow.length ||
       !stRow.length ||
       !finishRow.length
     ) {
+
       return {
         races: [],
         avgST: null
       };
+
     }
 
 
-    const courseCells = courseRow
-      .find('td')
-      .map((_, td) => clean($(td).text()))
-      .get();
+    const mainExpanded =
+      expandRow(mainRow);
 
-    const stCells = stRow
-      .find('td')
-      .map((_, td) => clean($(td).text()))
-      .get();
+    const courseExpanded =
+      expandRow(courseRow);
 
-    const finishCells = finishRow
-      .find('td')
-      .map((_, td) => clean($(td).text()))
-      .get();
+    const stExpanded =
+      expandRow(stRow);
+
+    const finishExpanded =
+      expandRow(finishRow);
 
 
     // ========================================
-    // 選手本体行の後半からレースNoを取得
+    // 今節欄は
+    //
+    // 15列 + 最後に早見1列
+    //
+    // 選手本体行：
+    //   最後16列のうち先頭15列
+    //
+    // 下3行：
+    //   最後15列
+    //
+    // として位置を固定する
     // ========================================
 
-    const racerCellIndex =
-      mainCells.findIndex(cell =>
-        /\d{4}\s*\/\s*(A1|A2|B1|B2)/.test(cell)
-      );
+    if (mainExpanded.length < 16) {
 
-    if (racerCellIndex < 0) {
       return {
         races: [],
         avgST: null
       };
-    }
-
-
-    // F/L/STセル
-    let flIndex = -1;
-
-    for (
-      let i = racerCellIndex + 1;
-      i < mainCells.length;
-      i++
-    ) {
-
-      if (
-        /F\d+\s+L\d+\s+([0-9.]+|-)/.test(
-          mainCells[i]
-        )
-      ) {
-        flIndex = i;
-        break;
-      }
 
     }
 
 
-    if (flIndex < 0) {
-      return {
-        races: [],
-        avgST: null
-      };
-    }
+    const raceNos =
+      mainExpanded.slice(-16, -1);
 
 
-    // 全国・当地・モーター・ボートの
-    // 4グループを通過
-    let groupsFound = 0;
-    let historyStart = -1;
-
-    for (
-      let i = flIndex + 1;
-      i < mainCells.length;
-      i++
-    ) {
-
-      const nums =
-        mainCells[i].match(
-          /-|\d+(?:\.\d+)?/g
-        ) || [];
-
-      if (nums.length >= 3) {
-
-        groupsFound++;
-
-        if (groupsFound === 4) {
-          historyStart = i + 1;
-          break;
-        }
-
-      }
-
-    }
+    const courses =
+      courseExpanded.slice(-15);
 
 
-    if (historyStart < 0) {
-      return {
-        races: [],
-        avgST: null
-      };
-    }
+    const sts =
+      stExpanded.slice(-15);
 
 
-    // ========================================
-    // レースNo行
-    // ========================================
-
-    const raceNoCells =
-      mainCells.slice(historyStart);
-
-
-    // ========================================
-    // 4行の長さを合わせる
-    // ========================================
-
-    const maxCount = Math.min(
-      raceNoCells.length,
-      courseCells.length,
-      stCells.length,
-      finishCells.length
-    );
+    const finishes =
+      finishExpanded.slice(-15);
 
 
     const races = [];
 
 
-    for (let i = 0; i < maxCount; i++) {
+    // ========================================
+    // 15列を「同じ列番号」で結合
+    //
+    // ★ filter(Boolean) は絶対しない
+    // ========================================
+
+    for (let i = 0; i < 15; i++) {
 
       const raceNoText =
-        clean(raceNoCells[i]);
+        clean(raceNos[i] || '');
 
       const courseText =
-        clean(courseCells[i]);
+        clean(courses[i] || '');
 
       const stText =
-        clean(stCells[i]);
+        clean(sts[i] || '');
 
       const finishText =
-        clean(finishCells[i]);
+        clean(finishes[i] || '');
 
 
-      // 空欄はその節の未出走枠
+      // レースNoが空なら
+      // この列は未出走
       if (
         !/^(?:[1-9]|1[0-2])$/.test(
           raceNoText
@@ -465,8 +448,12 @@ function extractCurrentMeet($, tr) {
       }
 
 
+      // 進入コースが取れないものは
+      // 無理に推測しない
       if (
-        !/^[1-6]$/.test(courseText)
+        !/^[1-6]$/.test(
+          courseText
+        )
       ) {
         continue;
       }
@@ -479,14 +466,14 @@ function extractCurrentMeet($, tr) {
       let st = null;
       let flying = false;
 
+
       if (/^F/.test(stText)) {
 
         flying = true;
 
         const value =
           Number(
-            stText
-              .replace(/^F/, '')
+            stText.replace(/^F/, '')
           );
 
         if (Number.isFinite(value)) {
@@ -512,7 +499,7 @@ function extractCurrentMeet($, tr) {
       let finish = null;
       let finishCode = null;
 
-      // 全角数字にも対応
+
       const normalizedFinish =
         finishText
           .replace(/１/g, '1')
@@ -534,6 +521,7 @@ function extractCurrentMeet($, tr) {
 
       } else if (finishText) {
 
+        // エ・妨・失・転・沈など
         finishCode =
           finishText;
 
@@ -541,6 +529,11 @@ function extractCurrentMeet($, tr) {
 
 
       races.push({
+
+        // 元表の列位置も保存
+        // 後で開催日ごとに分離するために使う
+        meetColumn: i,
+
         raceNo:
           Number(raceNoText),
 
@@ -554,6 +547,7 @@ function extractCurrentMeet($, tr) {
         finish,
 
         finishCode
+
       });
 
     }
@@ -588,8 +582,17 @@ function extractCurrentMeet($, tr) {
 
 
     return {
+
+      // 現段階では「公式表に掲載されている全履歴」
+      // 予想エンジンにはまだ直接渡さない
       races,
-      avgST
+
+      avgST,
+
+      // STEP2-2Bで
+      // 予想時点以前だけに分離する予定
+      predictionSafe: false
+
     };
 
 
@@ -598,6 +601,7 @@ function extractCurrentMeet($, tr) {
     return {
       races: [],
       avgST: null,
+      predictionSafe: false,
       error:
         String(
           e.message || e
@@ -987,7 +991,7 @@ racers.forEach((racer, index) => {
 
       ok: true,
 
-      version: '1.1-step2-2a-fix',
+      version: '1.2-step2-2a-align',
 
       source: url,
 

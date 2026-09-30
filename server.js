@@ -37,6 +37,230 @@ async function officialFetch(url) {
   return await response.text();
 }
 
+// ========================================
+// STEP2-1 コース別成績
+// ========================================
+
+async function fetchCourseStats(registration) {
+
+  const url =
+    `https://www.boatrace.jp/owpc/pc/data/racersearch/course?toban=${registration}`;
+
+  try {
+
+    const html = await officialFetch(url);
+    const $ = cheerio.load(html);
+
+    const result = {
+      registration,
+      source: url,
+      courses: {}
+    };
+
+    // 公式ページ内のテーブルを確認
+    const rows = [];
+
+    $('tr').each((_, tr) => {
+
+      const cells = $(tr)
+        .find('th,td')
+        .map((_, cell) => clean($(cell).text()))
+        .get()
+        .filter(Boolean);
+
+      if (cells.length) {
+        rows.push(cells);
+      }
+
+    });
+
+
+    // まずは公式ページから取得できる
+    // コース別の数値を安全に保持する。
+    //
+    // HTML構造が変わった場合は
+    // 推測せず null にする。
+
+    for (let course = 1; course <= 6; course++) {
+
+      result.courses[String(course)] = {
+
+        entryRate: null,
+        trioRate: null,
+        avgST: null,
+        avgStartRank: null
+
+      };
+
+    }
+
+
+    // ========================================
+    // 表の行を解析
+    // ========================================
+
+    const bodyText = clean($('body').text());
+
+
+    function getSection(startLabel, endLabel) {
+
+      const start =
+        bodyText.indexOf(startLabel);
+
+      if (start < 0) {
+        return '';
+      }
+
+      const from =
+        start + startLabel.length;
+
+      const end =
+        endLabel
+          ? bodyText.indexOf(
+              endLabel,
+              from
+            )
+          : -1;
+
+      return bodyText.slice(
+        from,
+        end >= 0
+          ? end
+          : undefined
+      );
+
+    }
+
+
+    function extractSixValues(text) {
+
+      if (!text) {
+        return null;
+      }
+
+      const values =
+        text.match(
+          /-?\d+(?:\.\d+)?/g
+        );
+
+      if (!values) {
+        return null;
+      }
+
+      const numbers =
+        values
+          .map(Number)
+          .filter(v =>
+            Number.isFinite(v)
+          );
+
+
+      // 6コース分揃っていない場合は
+      // 無理に推測しない
+      if (numbers.length < 6) {
+        return null;
+      }
+
+      return numbers.slice(0, 6);
+
+    }
+
+
+    const entryRates =
+      extractSixValues(
+        getSection(
+          'コース別進入率',
+          'コース別3連対率'
+        )
+      );
+
+
+    const trioRates =
+      extractSixValues(
+        getSection(
+          'コース別3連対率',
+          'コース別平均スタートタイミング'
+        )
+      );
+
+
+    const avgSTs =
+      extractSixValues(
+        getSection(
+          'コース別平均スタートタイミング',
+          'コース別スタート順'
+        )
+      );
+
+
+    const startRanks =
+      extractSixValues(
+        getSection(
+          'コース別スタート順',
+          null
+        )
+      );
+
+
+    for (
+      let course = 1;
+      course <= 6;
+      course++
+    ) {
+
+      const key =
+        String(course);
+
+      const index =
+        course - 1;
+
+
+      result.courses[key] = {
+
+        entryRate:
+          entryRates?.[index]
+          ?? null,
+
+        trioRate:
+          trioRates?.[index]
+          ?? null,
+
+        avgST:
+          avgSTs?.[index]
+          ?? null,
+
+        avgStartRank:
+          startRanks?.[index]
+          ?? null
+
+      };
+
+    }
+
+
+    return result;
+
+
+  } catch (e) {
+
+    return {
+
+      registration,
+
+      source: url,
+
+      courses: null,
+
+      error:
+        String(
+          e.message || e
+        )
+
+    };
+
+  }
+
+}
 
 // ========================================
 // API
@@ -369,6 +593,42 @@ app.get('/api/race', async (req, res) => {
 
     }
 
+    // ========================================
+// STEP2-1
+// 6選手のコース別成績を並列取得
+// ========================================
+
+const courseResults =
+  await Promise.all(
+
+    racers.map(r =>
+      fetchCourseStats(
+        r.registration
+      )
+    )
+
+  );
+
+
+racers.forEach((racer, index) => {
+
+  const result =
+    courseResults[index];
+
+
+  racer.courseStats =
+    result?.courses
+    ?? null;
+
+
+  if (result?.error) {
+
+    racer.courseStatsError =
+      result.error;
+
+  }
+
+});
 
     // ========================================
     // 成功
@@ -378,7 +638,7 @@ app.get('/api/race', async (req, res) => {
 
       ok: true,
 
-      version: '0.6-step1-recovery',
+      version: '0.7-step2-1',
 
       source: url,
 

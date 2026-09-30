@@ -1022,13 +1022,14 @@ app.get('/api/beforeinfo', async (req, res) => {
         const m = text.match(/^([1-6])\s+(F)?\.?(\d{1,2})$/i);
         if (!m) return;
 
-        const course = Number(m[1]);
+        const lane = Number(m[1]);
         const flying = Boolean(m[2]);
         const st = Number(`0.${m[3].padStart(2, '0')}`);
 
+        // Rows are rendered in course order; the leading displayed number is boat/lane.
         startExhibition.push({
           course: startExhibition.length + 1,
-          lane: course,
+          lane,
           st,
           flying,
           raw: text
@@ -1063,11 +1064,13 @@ app.get('/api/beforeinfo', async (req, res) => {
     const waveHeightRaw = valueAfter('波高', /波高\s*(\d+(?:\.\d+)?)\s*cm/);
 
     let weatherText = null;
-    const weatherPos = bodyText.indexOf('天候');
-    if (weatherPos >= 0) {
-      const chunk = bodyText.slice(weatherPos, weatherPos + 80);
-      const m = chunk.match(/天候\s*([^\d℃m]{1,12})/);
-      if (m) weatherText = clean(m[1]) || null;
+    // Official beforeinfo does not necessarily print a literal "天候" label.
+    // The weather word is displayed between 気温 and 風速.
+    const weatherMatch = bodyText.match(
+      /気温\s*-?\d+(?:\.\d+)?\s*℃?\s*([^\d℃]{1,12}?)\s*風速/
+    );
+    if (weatherMatch) {
+      weatherText = clean(weatherMatch[1]) || null;
     }
 
     const weather = {
@@ -1081,7 +1084,7 @@ app.get('/api/beforeinfo', async (req, res) => {
 
     res.json({
       ok: true,
-      version: '2.0-step2-3b-weather-entry',
+      version: '2.1-step2-3b-weather-entryfix',
       source,
       date,
       jcd,
@@ -1097,7 +1100,7 @@ app.get('/api/beforeinfo', async (req, res) => {
     console.error('beforeinfo error:', error);
     res.status(500).json({
       ok: false,
-      version: '2.0-step2-3b-weather-entry',
+      version: '2.1-step2-3b-weather-entryfix',
       error: error.message
     });
   }

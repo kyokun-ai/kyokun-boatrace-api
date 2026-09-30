@@ -22,7 +22,7 @@ button:disabled{opacity:.5}.status{margin-top:10px;color:#b8cbe0}
 </head>
 <body><div class="wrap">
 <h1>🚤 キョウ君 BOATRACE AI</h1>
-<div class="sub">STEP3｜試作予想エンジン</div>
+<div class="sub">STEP3｜全国24場対応・試作予想エンジン</div>
 
 <div class="panel">
   <div class="grid">
@@ -45,7 +45,12 @@ button:disabled{opacity:.5}.status{margin-top:10px;color:#b8cbe0}
 <script>
 const $=id=>document.getElementById(id);
 const today=new Date(); $('date').value=today.toISOString().slice(0,10);
-for(let i=1;i<=24;i++){const o=document.createElement('option');o.value=String(i).padStart(2,'0');o.textContent=String(i).padStart(2,'0');$('jcd').appendChild(o)}
+const venues={
+'01':'桐生','02':'戸田','03':'江戸川','04':'平和島','05':'多摩川','06':'浜名湖',
+'07':'蒲郡','08':'常滑','09':'津','10':'三国','11':'びわこ','12':'住之江',
+'13':'尼崎','14':'鳴門','15':'丸亀','16':'児島','17':'宮島','18':'徳山',
+'19':'下関','20':'若松','21':'芦屋','22':'福岡','23':'唐津','24':'大村'};
+for(const [code,name] of Object.entries(venues)){const o=document.createElement('option');o.value=code;o.textContent=`${code} ${name}`;$('jcd').appendChild(o)}
 for(let i=1;i<=12;i++){const o=document.createElement('option');o.value=i;o.textContent=i+'R';$('rno').appendChild(o)}
 
 $('predict').onclick=async()=>{
@@ -58,8 +63,15 @@ $('predict').onclick=async()=>{
       fetch(`/api/beforeinfo?date=${date}&jcd=${jcd}&rno=${rno}`)
     ]);
     const race=await raceRes.json(), before=await beforeRes.json();
-    if(!race.ok) throw new Error('出走データ取得失敗: '+(race.error||'unknown'));
-    if(!before.ok) throw new Error('直前情報取得失敗: '+(before.error||'unknown'));
+    if(!race.ok){
+      if(race.status==='not_held') throw new Error(`非開催：${venues[jcd]}はこの日の開催データがありません`);
+      if(race.status==='parse_error') throw new Error(`解析エラー：${race.error}`);
+      throw new Error('出走データ取得失敗: '+(race.error||'unknown'));
+    }
+    if(!before.ok){
+      if(before.status==='beforeinfo_not_ready') throw new Error(`予想待ち：${before.message}`);
+      throw new Error('直前情報取得失敗: '+(before.error||before.message||'unknown'));
+    }
 
     const pRes=await fetch('/api/predict',{
       method:'POST',headers:{'content-type':'application/json'},
@@ -69,6 +81,7 @@ $('predict').onclick=async()=>{
     if(!p.ok) throw new Error(p.error||'予想失敗');
 
     $('meta').innerHTML=
+      `場：<b>${jcd} ${venues[jcd]}</b><br>`+
       `自信度：<b>${p.prediction.confidence}</b><br>`+
       `想定進入：${(p.entryOrder||[]).join('-') || '不明'}<br>`+
       `本線頭：${p.prediction.mainHead}号艇 ／ 差し頭：${p.prediction.differenceHead}号艇<br>`+

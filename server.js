@@ -1438,111 +1438,164 @@ function buildPredictionFeatures(race, before) {
   });
 }
 
-function makeNineBets(features) {
-  const sorted = [...features].sort((a, b) => b.scores.order - a.scores.order);
+function permutations3(lanes) {
+  const out = [];
+  for (const a of lanes) for (const b of lanes) for (const c of lanes) {
+    if (a !== b && a !== c && b !== c) out.push([a,b,c]);
+  }
+  return out;
+}
 
-  // Main head: strongest overall candidate, with a modest inside-course preference.
-  const mainHead = [...features].sort((a, b) => {
-    const aa = a.scores.order + (a.actualCourse === 1 ? 7 : a.actualCourse === 2 ? 2 : 0);
-    const bb = b.scores.order + (b.actualCourse === 1 ? 7 : b.actualCourse === 2 ? 2 : 0);
-    return bb - aa;
-  })[0];
+function makeTwelveBets(features) {
+  const byLane = new Map(features.map(x => [x.lane, x]));
+  const sorted = [...features].sort((a,b) => b.scores.order - a.scores.order);
+  const rankIndex = new Map(sorted.map((x,i) => [x.lane, i]));
 
-  const followers = sorted.filter(x => x.lane !== mainHead.lane);
+  // 120通りを「頭・2着・3着」の役割別に採点。
+  // 本命は最も強い3点。△×☆は本命に入らなかった別シナリオの研究用。
+  const scored = permutations3(features.map(x => x.lane)).map(([a,b,c]) => {
+    const A=byLane.get(a), B=byLane.get(b), C=byLane.get(c);
+    const insideHead = A.actualCourse===1 ? 7 : A.actualCourse===2 ? 2 : 0;
+    const head = A.scores.order*0.58 + A.scores.start*0.16 + A.scores.course*0.14 + A.scores.direct*0.12 + insideHead;
+    const second = B.scores.order*0.62 + B.scores.start*0.12 + B.scores.form*0.14 + B.scores.direct*0.12;
+    const third = C.scores.order*0.68 + C.scores.form*0.14 + C.scores.machine*0.10 + C.scores.direct*0.08;
+    const score = head*0.52 + second*0.30 + third*0.18;
+    return { bet:`${a}-${b}-${c}`, lanes:[a,b,c], headLane:a, score };
+  }).sort((a,b)=>b.score-a.score);
 
-  const main = [];
-  for (let i = 0; i < followers.length && main.length < 7; i++) {
-    for (let j = 0; j < followers.length && main.length < 7; j++) {
-      if (i === j) continue;
-      main.push(`${mainHead.lane}-${followers[i].lane}-${followers[j].lane}`);
+  const used = new Set();
+  const take = (pool, n) => {
+    const arr=[];
+    for (const x of pool) {
+      if (used.has(x.bet)) continue;
+      used.add(x.bet); arr.push(x.bet);
+      if (arr.length===n) break;
     }
-  }
+    return arr;
+  };
 
-  // "差し頭": prefer the racer actually entering course 2 when viable.
-  const course2 = features.find(x => x.actualCourse === 2 && x.lane !== mainHead.lane);
-  const differenceHead =
-    course2 && course2.scores.order >= 48
-      ? course2
-      : followers[0];
+  const main = take(scored, 3);
+  const mainHeads = new Set(main.map(x => Number(x.split('-')[0])));
+  const strongestHead = Number(main[0]?.split('-')[0]);
 
-  const thirdCandidates = sorted
-    .filter(x => x.lane !== differenceHead.lane && x.lane !== mainHead.lane)
-    .slice(0, 2);
+  // △: 本命と近い評価。主に本命展開の着順ズレを拾う。
+  const reservePool = scored.filter(x => x.headLane===strongestHead || mainHeads.has(x.headLane));
+  const reserve = take(reservePool, 3);
 
-  const difference = thirdCandidates.map(
-    x => `${differenceHead.lane}-${mainHead.lane}-${x.lane}`
-  );
+  // ×: 別頭シナリオ。総合上位艇が頭になるケースを警戒。
+  const cautionHeads = sorted.slice(0,4).map(x=>x.lane).filter(x=>!mainHeads.has(x));
+  const cautionPool = scored.filter(x => cautionHeads.includes(x.headLane));
+  const caution = take(cautionPool, 3);
 
-  while (difference.length < 2) {
-    const fallback = followers.find(
-      x => x.lane !== differenceHead.lane &&
-           !difference.some(b => b.endsWith(`-${x.lane}`))
-    );
-    if (!fallback) break;
-    difference.push(`${differenceHead.lane}-${mainHead.lane}-${fallback.lane}`);
-  }
+  // ☆: さらに別頭。上記に入らない艇の中で成立度が高い3点。
+  const starPool = scored.filter(x => !mainHeads.has(x.headLane) && !cautionHeads.includes(x.headLane));
+  const star = take(starPool, 3);
 
-  const top = sorted[0]?.scores.order ?? 0;
-  const second = sorted[1]?.scores.order ?? 0;
-  const spread = top - second;
-  const confidence =
-    spread >= 12 ? '高め' :
-    spread >= 6 ? 'やや高め' :
-    spread >= 2 ? '中' : '低め';
+  // 候補不足時は全120通りの上位から補完（重複なし）。
+  const fill = arr => {
+    for (const x of scored) {
+      if (arr.length>=3) break;
+      if (used.has(x.bet)) continue;
+      used.add(x.bet); arr.push(x.bet);
+    }
+  };
+  fill(reserve); fill(caution); fill(star);
+
+  const top = scored[0]?.score ?? 0;
+  const fourth = scored[3]?.score ?? 0;
+  const spread = top-fourth;
+  const confidence = spread>=10?'高め':spread>=5?'やや高め':spread>=2?'中':'低め';
 
   return {
-    mainHead: mainHead.lane,
-    differenceHead: differenceHead?.lane ?? null,
-    main: main.slice(0, 7),
-    difference: difference.slice(0, 2),
-    all: [...main.slice(0, 7), ...difference.slice(0, 2)],
-    confidence
+    main, reserve, caution, star,
+    all:[...main,...reserve,...caution,...star],
+    confidence,
+    strongestHead,
+    candidateTop: scored.slice(0,20).map(x=>({bet:x.bet,score:Math.round(x.score*10)/10}))
   };
 }
 
 app.post('/api/predict', (req, res) => {
   try {
     const { race, before } = req.body || {};
-
-    if (!race?.ok || !Array.isArray(race?.racers)) {
-      return res.status(400).json({ ok: false, error: 'valid race data is required' });
-    }
-    if (!before?.ok) {
-      return res.status(400).json({ ok: false, error: 'valid beforeinfo data is required' });
-    }
-
-    const features = buildPredictionFeatures(race, before);
-    const bets = makeNineBets(features);
-
+    if (!race?.ok || !Array.isArray(race?.racers)) return res.status(400).json({ok:false,error:'valid race data is required'});
+    if (!before?.ok) return res.status(400).json({ok:false,error:'valid beforeinfo data is required'});
+    const features=buildPredictionFeatures(race,before);
+    const bets=makeTwelveBets(features);
     res.json({
-      ok: true,
-      version: '2.5-step3-national',
-      predictionSafe: true,
-      oddsUsed: false,
-      date: race.date,
-      jcd: race.jcd,
-      rno: race.rno,
-      entryOrder: before.entryOrder || null,
-      isWakunari: before.isWakunari ?? null,
-      weather: before.weather || null,
-      predictionFeatures: features,
-      prediction: {
-        style: '本線7点 + 差し頭2点',
-        confidence: bets.confidence,
-        mainHead: bets.mainHead,
-        differenceHead: bets.differenceHead,
-        main: bets.main,
-        difference: bets.difference,
-        all: bets.all
+      ok:true, version:'2.6-step3b-backtest12', predictionSafe:true, oddsUsed:false,
+      date:race.date,jcd:race.jcd,rno:race.rno,
+      entryOrder:before.entryOrder||null,isWakunari:before.isWakunari??null,weather:before.weather||null,
+      predictionFeatures:features,
+      prediction:{
+        style:'○本命3点 + △抑え3点 + ×注意3点 + ☆穴目3点',
+        confidence:bets.confidence,
+        mainHead:bets.strongestHead,
+        main:bets.main,reserve:bets.reserve,caution:bets.caution,star:bets.star,all:bets.all,
+        candidateTop:bets.candidateTop
       }
     });
-  } catch (error) {
-    console.error('predict error:', error);
-    res.status(500).json({
-      ok: false,
-      version: '2.5-step3-national',
-      error: error.message
+  } catch(error) {
+    console.error('predict error:',error);
+    res.status(500).json({ok:false,version:'2.6-step3b-backtest12',error:error.message});
+  }
+});
+
+// ============================================================
+// STEP3-B 結果取得API（予想とは完全分離）
+// ============================================================
+app.get('/api/result', async (req,res)=>{
+  try {
+    const date=String(req.query.date||'').replace(/\D/g,'');
+    const jcd=String(req.query.jcd||'').padStart(2,'0');
+    const rno=Number(req.query.rno);
+    if(!/^\d{8}$/.test(date)||!/^\d{2}$/.test(jcd)||!Number.isInteger(rno)||rno<1||rno>12)
+      return res.status(400).json({ok:false,error:'date/jcd/rno are required'});
+    const source=`https://www.boatrace.jp/owpc/pc/race/raceresult?hd=${date}&jcd=${jcd}&rno=${rno}`;
+    const html=await officialFetch(source); const $=cheerio.load(html);
+    const body=clean($('body').text());
+
+    const finish=[];
+    $('table').each((_,table)=>{
+      const txt=clean($(table).text());
+      if(!txt.includes('ボートレーサー')||!txt.includes('レースタイム')) return;
+      $(table).find('tr').each((__,tr)=>{
+        const cells=$(tr).find('td').map((___,td)=>clean($(td).text())).get();
+        if(cells.length<3) return;
+        const pos=Number(String(cells[0]).replace(/[１-６]/g,ch=>String.fromCharCode(ch.charCodeAt(0)-0xFEE0)));
+        const lane=Number(cells[1]);
+        if(pos>=1&&pos<=6&&lane>=1&&lane<=6) finish.push({finish:pos,lane,racer:cells[2]||null,time:cells[3]||null});
+      });
     });
+    finish.sort((a,b)=>a.finish-b.finish);
+    if(finish.length<3) return res.status(409).json({ok:false,status:'result_not_ready',message:'結果がまだ確定していません。',source,date,jcd,rno});
+    const trifecta=`${finish[0].lane}-${finish[1].lane}-${finish[2].lane}`;
+
+    let payout=null,popularity=null;
+    $('tr').each((_,tr)=>{
+      const cells=$(tr).find('th,td').map((__,x)=>clean($(x).text())).get();
+      if(cells.some(x=>x==='3連単')) {
+        const joined=cells.join(' ');
+        const m=joined.match(/3連単\s+([1-6]-[1-6]-[1-6])\s+[¥￥]?([\d,]+)\s+(\d+)/);
+        if(m&&m[1]===trifecta){ payout=Number(m[2].replace(/,/g,'')); popularity=Number(m[3]); }
+      }
+    });
+
+    const startInfo=[];
+    const startPos=body.indexOf('スタート情報');
+    const payoutPos=body.indexOf('勝式',startPos);
+    if(startPos>=0){
+      const chunk=body.slice(startPos,payoutPos>startPos?payoutPos:startPos+500);
+      const re=/([1-6])\s+(F)?\.?([0-9]{1,2})(?:\s+(逃げ|差し|まくり差し|まくり|抜き|恵まれ))?/g;
+      let m,course=1;
+      while((m=re.exec(chunk))!==null&&course<=6){startInfo.push({course,lane:Number(m[1]),st:Number(`0.${m[3].padStart(2,'0')}`),flying:Boolean(m[2]),winningMethod:m[4]||null});course++;}
+    }
+    const method=(body.match(/決まり手\s*(逃げ|差し|まくり差し|まくり|抜き|恵まれ)/)||[])[1]
+      || startInfo.find(x=>x.winningMethod)?.winningMethod || null;
+    res.json({ok:true,version:'2.6-step3b-backtest12',source,date,jcd,rno,trifecta,payout,popularity,winningMethod:method,finish,startInfo,entryOrder:startInfo.map(x=>x.lane)});
+  } catch(error){
+    console.error('result error:',error);
+    res.status(500).json({ok:false,version:'2.6-step3b-backtest12',error:error.message});
   }
 });
 

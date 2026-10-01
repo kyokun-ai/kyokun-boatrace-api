@@ -1523,7 +1523,7 @@ app.post('/api/predict', (req, res) => {
     const features=buildPredictionFeatures(race,before);
     const bets=makeTwelveBets(features);
     res.json({
-      ok:true, version:'2.6-step3b-backtest12', predictionSafe:true, oddsUsed:false,
+      ok:true, version:'2.7-step3c-bulk-backtest', predictionSafe:true, oddsUsed:false,
       date:race.date,jcd:race.jcd,rno:race.rno,
       entryOrder:before.entryOrder||null,isWakunari:before.isWakunari??null,weather:before.weather||null,
       predictionFeatures:features,
@@ -1537,7 +1537,36 @@ app.post('/api/predict', (req, res) => {
     });
   } catch(error) {
     console.error('predict error:',error);
-    res.status(500).json({ok:false,version:'2.6-step3b-backtest12',error:error.message});
+    res.status(500).json({ok:false,version:'2.7-step3c-bulk-backtest',error:error.message});
+  }
+});
+
+
+// ============================================================
+// STEP3-C 開催場一覧API（日付 → その日に開催している場）
+// ============================================================
+app.get('/api/venues', async (req,res)=>{
+  try {
+    const date=String(req.query.date||'').replace(/\D/g,'');
+    if(!/^\d{8}$/.test(date)) return res.status(400).json({ok:false,error:'date is required (YYYYMMDD)'});
+    const source=`https://www.boatrace.jp/owpc/pc/race/index?hd=${date}`;
+    const html=await officialFetch(source);
+    const $=cheerio.load(html);
+    const found=new Set();
+    $('a[href]').each((_,a)=>{
+      const href=String($(a).attr('href')||'');
+      const m=href.match(/[?&]jcd=(\d{1,2})/);
+      if(!m) return;
+      const jcd=String(m[1]).padStart(2,'0');
+      if(BOATRACE_VENUES[jcd]) found.add(jcd);
+    });
+    // indexページ内のリンクから開催場だけを抽出。重複はSetで除去。
+    const venueCodes=[...found].sort((a,b)=>Number(a)-Number(b));
+    const venues=venueCodes.map(jcd=>({jcd,name:BOATRACE_VENUES[jcd]}));
+    res.json({ok:true,version:'2.7-step3c-bulk-backtest',date,source,count:venues.length,venues});
+  } catch(error){
+    console.error('venues error:',error);
+    res.status(500).json({ok:false,version:'2.7-step3c-bulk-backtest',error:error.message});
   }
 });
 
@@ -1592,10 +1621,10 @@ app.get('/api/result', async (req,res)=>{
     }
     const method=(body.match(/決まり手\s*(逃げ|差し|まくり差し|まくり|抜き|恵まれ)/)||[])[1]
       || startInfo.find(x=>x.winningMethod)?.winningMethod || null;
-    res.json({ok:true,version:'2.6-step3b-backtest12',source,date,jcd,rno,trifecta,payout,popularity,winningMethod:method,finish,startInfo,entryOrder:startInfo.map(x=>x.lane)});
+    res.json({ok:true,version:'2.7-step3c-bulk-backtest',source,date,jcd,rno,trifecta,payout,popularity,winningMethod:method,finish,startInfo,entryOrder:startInfo.map(x=>x.lane)});
   } catch(error){
     console.error('result error:',error);
-    res.status(500).json({ok:false,version:'2.6-step3b-backtest12',error:error.message});
+    res.status(500).json({ok:false,version:'2.7-step3c-bulk-backtest',error:error.message});
   }
 });
 

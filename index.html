@@ -1,96 +1,28 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>キョウ君 BOATRACE AI</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
-body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-system,sans-serif}
-.wrap{max-width:720px;margin:auto;padding:18px}
-h1{font-size:24px;margin:4px 0}.sub{color:#9db2c9;margin-bottom:18px}
-.panel,.result{background:#101d2d;border:1px solid #263b53;border-radius:16px;padding:14px;margin:12px 0}
-.grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px}
-label{font-size:12px;color:#a9bed3}input,select,button{width:100%;box-sizing:border-box;border-radius:10px;border:1px solid #36506c;padding:11px;font-size:16px}
-input,select{background:#0b1725;color:white}button{background:#1687ff;color:white;font-weight:800;margin-top:12px;cursor:pointer}
-button:disabled{opacity:.5}.status{margin-top:10px;color:#b8cbe0}
-.betbox{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}
-.bet{background:#071421;border-radius:10px;padding:10px;text-align:center;font-size:20px;font-weight:900}
-.main{border-left:4px solid #39a5ff}.diff{border-left:4px solid #ffb340}
-.meta{font-size:14px;color:#b9cbe0;line-height:1.7}.hidden{display:none}
-.warn{font-size:13px;color:#ffcf70;margin-top:10px}
-</style>
-</head>
+body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-system,sans-serif}.wrap{max-width:900px;margin:auto;padding:18px}h1{font-size:24px;margin:4px 0}.sub{color:#9db2c9;margin-bottom:18px}.panel,.result{background:#101d2d;border:1px solid #263b53;border-radius:16px;padding:14px;margin:12px 0}.grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px}label{font-size:12px;color:#a9bed3}input,select,button{width:100%;box-sizing:border-box;border-radius:10px;border:1px solid #36506c;padding:11px;font-size:16px}input,select{background:#0b1725;color:white}button{background:#1687ff;color:white;font-weight:800;margin-top:12px;cursor:pointer}button.secondary{background:#263b53}button:disabled{opacity:.5}.status{margin-top:10px;color:#b8cbe0}.betbox{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}.bet{background:#071421;border-radius:10px;padding:10px;text-align:center;font-size:19px;font-weight:900}.main{border-left:4px solid #45d483}.reserve{border-left:4px solid #45a9ff}.caution{border-left:4px solid #ffb340}.star{border-left:4px solid #d47cff}.meta{font-size:14px;color:#b9cbe0;line-height:1.7}.hidden{display:none}.warn{font-size:13px;color:#ffcf70;margin-top:10px}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.kpi{background:#071421;border-radius:10px;padding:10px;text-align:center}.kpi b{display:block;font-size:20px}.tablewrap{overflow:auto;margin-top:12px}table{width:100%;border-collapse:collapse;min-width:780px;font-size:13px}th,td{padding:8px;border-bottom:1px solid #263b53;text-align:center}th{color:#9db2c9}.hit-main{color:#45d483;font-weight:900}.hit-sub{color:#ffcf70;font-weight:800}.miss{color:#ff7b7b}@media(max-width:600px){.wrap{padding:10px}.grid{grid-template-columns:1fr 1fr}.grid>div:first-child{grid-column:1/-1}.betbox{grid-template-columns:repeat(3,1fr)}.bet{font-size:16px;padding:9px 4px}.kpis{grid-template-columns:repeat(2,1fr)}h1{font-size:21px}}
+</style></head>
 <body><div class="wrap">
-<h1>🚤 キョウ君 BOATRACE AI</h1>
-<div class="sub">STEP3｜全国24場対応・試作予想エンジン</div>
-
-<div class="panel">
-  <div class="grid">
-    <div><label>日付</label><input id="date" type="date"></div>
-    <div><label>場</label><select id="jcd"></select></div>
-    <div><label>R</label><select id="rno"></select></div>
-  </div>
-  <button id="predict">キョウ君に予想してもらう</button>
-  <div class="status" id="status">オッズは予想に使用しません。</div>
-</div>
-
-<div id="result" class="result hidden">
-  <h2>🎯 キョウ君予想</h2>
-  <div class="meta" id="meta"></div>
-  <h3>本線7点</h3><div class="betbox" id="main"></div>
-  <h3>差し頭2点</h3><div class="betbox" id="diff"></div>
-  <div class="warn">※ 試作ロジック。過去結果との照合で1点ずつ修正して育てます。</div>
-</div>
+<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">STEP3-B｜12点予想・バックテスト研究版</div>
+<div class="panel"><div class="grid"><div><label>日付</label><input id="date" type="date"></div><div><label>場</label><select id="jcd"></select></div><div><label>R</label><select id="rno"></select></div></div><button id="predict">キョウ君に予想してもらう</button><button id="backtest" class="secondary">🧪 この日・この場をバックテスト</button><div class="status" id="status">オッズは予想に使用しません。</div></div>
+<div id="result" class="result hidden"><h2>🎯 キョウ君予想</h2><div class="meta" id="meta"></div><h3>○ 本命3点</h3><div class="betbox" id="main"></div><h3>△ 抑え3点</h3><div class="betbox" id="reserve"></div><h3>× 注意3点</h3><div class="betbox" id="caution"></div><h3>☆ 穴目3点</h3><div class="betbox" id="star"></div><div class="warn">※ 的中率の本評価は「○本命3点」のみ。△×☆は本命に上げられなかった原因を研究するための観測枠です。</div></div>
+<div id="bt" class="result hidden"><h2>🧪 バックテスト結果</h2><div class="kpis" id="kpis"></div><button id="excel" class="secondary">📥 Excelに出力</button><div class="tablewrap"><table><thead><tr><th>R</th><th>○本命3点</th><th>△抑え</th><th>×注意</th><th>☆穴目</th><th>結果</th><th>判定</th><th>払戻</th></tr></thead><tbody id="btrows"></tbody></table></div></div>
 </div>
 <script>
-const $=id=>document.getElementById(id);
-const today=new Date(); $('date').value=today.toISOString().slice(0,10);
-const venues={
-'01':'桐生','02':'戸田','03':'江戸川','04':'平和島','05':'多摩川','06':'浜名湖',
-'07':'蒲郡','08':'常滑','09':'津','10':'三国','11':'びわこ','12':'住之江',
-'13':'尼崎','14':'鳴門','15':'丸亀','16':'児島','17':'宮島','18':'徳山',
-'19':'下関','20':'若松','21':'芦屋','22':'福岡','23':'唐津','24':'大村'};
-for(const [code,name] of Object.entries(venues)){const o=document.createElement('option');o.value=code;o.textContent=`${code} ${name}`;$('jcd').appendChild(o)}
-for(let i=1;i<=12;i++){const o=document.createElement('option');o.value=i;o.textContent=i+'R';$('rno').appendChild(o)}
-
-$('predict').onclick=async()=>{
-  const date=$('date').value.replaceAll('-',''), jcd=$('jcd').value, rno=$('rno').value;
-  $('predict').disabled=true; $('status').textContent='公式データ取得 → 特徴量計算 → 9点作成中…';
-  $('result').classList.add('hidden');
-  try{
-    const [raceRes,beforeRes]=await Promise.all([
-      fetch(`/api/race?date=${date}&jcd=${jcd}&rno=${rno}`),
-      fetch(`/api/beforeinfo?date=${date}&jcd=${jcd}&rno=${rno}`)
-    ]);
-    const race=await raceRes.json(), before=await beforeRes.json();
-    if(!race.ok){
-      if(race.status==='not_held') throw new Error(`非開催：${venues[jcd]}はこの日の開催データがありません`);
-      if(race.status==='parse_error') throw new Error(`解析エラー：${race.error}`);
-      throw new Error('出走データ取得失敗: '+(race.error||'unknown'));
-    }
-    if(!before.ok){
-      if(before.status==='beforeinfo_not_ready') throw new Error(`予想待ち：${before.message}`);
-      throw new Error('直前情報取得失敗: '+(before.error||before.message||'unknown'));
-    }
-
-    const pRes=await fetch('/api/predict',{
-      method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({race,before})
-    });
-    const p=await pRes.json();
-    if(!p.ok) throw new Error(p.error||'予想失敗');
-
-    $('meta').innerHTML=
-      `場：<b>${jcd} ${venues[jcd]}</b><br>`+
-      `自信度：<b>${p.prediction.confidence}</b><br>`+
-      `想定進入：${(p.entryOrder||[]).join('-') || '不明'}<br>`+
-      `本線頭：${p.prediction.mainHead}号艇 ／ 差し頭：${p.prediction.differenceHead}号艇<br>`+
-      `オッズ使用：なし`;
-    $('main').innerHTML=p.prediction.main.map(x=>`<div class="bet main">${x}</div>`).join('');
-    $('diff').innerHTML=p.prediction.difference.map(x=>`<div class="bet diff">${x}</div>`).join('');
-    $('result').classList.remove('hidden');
-    $('status').textContent='予想完成🔥';
-  }catch(e){$('status').textContent='エラー：'+e.message}
-  finally{$('predict').disabled=false}
-};
+const $=id=>document.getElementById(id);const today=new Date();$('date').value=today.toLocaleDateString('sv-SE');
+const venues={'01':'桐生','02':'戸田','03':'江戸川','04':'平和島','05':'多摩川','06':'浜名湖','07':'蒲郡','08':'常滑','09':'津','10':'三国','11':'びわこ','12':'住之江','13':'尼崎','14':'鳴門','15':'丸亀','16':'児島','17':'宮島','18':'徳山','19':'下関','20':'若松','21':'芦屋','22':'福岡','23':'唐津','24':'大村'};
+for(const [c,n] of Object.entries(venues)){const o=document.createElement('option');o.value=c;o.textContent=`${c} ${n}`;$('jcd').appendChild(o)}for(let i=1;i<=12;i++){const o=document.createElement('option');o.value=i;o.textContent=i+'R';$('rno').appendChild(o)}
+let lastBacktest=[];
+async function getPrediction(date,jcd,rno){const [rr,br]=await Promise.all([fetch(`/api/race?date=${date}&jcd=${jcd}&rno=${rno}`),fetch(`/api/beforeinfo?date=${date}&jcd=${jcd}&rno=${rno}`)]);const race=await rr.json(),before=await br.json();if(!race.ok)throw new Error(race.error||race.status||'出走データ取得失敗');if(!before.ok)throw new Error(before.message||before.error||'直前情報取得失敗');const pr=await fetch('/api/predict',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({race,before})});const p=await pr.json();if(!p.ok)throw new Error(p.error||'予想失敗');return {race,before,p};}
+function bets(id,arr,cls){$(id).innerHTML=(arr||[]).map(x=>`<div class="bet ${cls}">${x}</div>`).join('')}
+$('predict').onclick=async()=>{const date=$('date').value.replaceAll('-',''),jcd=$('jcd').value,rno=$('rno').value;$('predict').disabled=true;$('status').textContent='公式データ取得 → 12点予想中…';$('result').classList.add('hidden');try{const {p}=await getPrediction(date,jcd,rno);$('meta').innerHTML=`場：<b>${jcd} ${venues[jcd]}</b><br>自信度：<b>${p.prediction.confidence}</b><br>想定進入：${(p.entryOrder||[]).join('-')||'不明'}<br>本命頭候補：${p.prediction.mainHead}号艇<br>オッズ使用：なし`;bets('main',p.prediction.main,'main');bets('reserve',p.prediction.reserve,'reserve');bets('caution',p.prediction.caution,'caution');bets('star',p.prediction.star,'star');$('result').classList.remove('hidden');$('status').textContent='12点予想完成🔥';}catch(e){$('status').textContent='エラー：'+e.message}finally{$('predict').disabled=false}};
+function judge(pred,result){const t=result.trifecta;if(pred.main.includes(t))return {code:'○',label:'○本命的中'};if(pred.reserve.includes(t))return {code:'△',label:'本命ハズレ・△捕捉'};if(pred.caution.includes(t))return {code:'×',label:'本命ハズレ・×捕捉'};if(pred.star.includes(t))return {code:'☆',label:'本命ハズレ・☆捕捉'};return {code:'外',label:'完全ハズレ'};}
+$('backtest').onclick=async()=>{const date=$('date').value.replaceAll('-',''),jcd=$('jcd').value;$('backtest').disabled=true;$('bt').classList.add('hidden');lastBacktest=[];for(let r=1;r<=12;r++){ $('status').textContent=`バックテスト ${r}/12R：予想 → 結果照合中…`;try{const {p}=await getPrediction(date,jcd,r);const res=await fetch(`/api/result?date=${date}&jcd=${jcd}&rno=${r}`);const result=await res.json();if(!result.ok)throw new Error(result.message||result.error||'結果なし');const j=judge(p.prediction,result);lastBacktest.push({date,jcd,venue:venues[jcd],rno:r,confidence:p.prediction.confidence,entry:(p.entryOrder||[]).join('-'),main:p.prediction.main,reserve:p.prediction.reserve,caution:p.prediction.caution,star:p.prediction.star,result:result.trifecta,judge:j.code,judgeLabel:j.label,payout:result.payout,popularity:result.popularity,winningMethod:result.winningMethod,features:p.predictionFeatures});}catch(e){lastBacktest.push({date,jcd,venue:venues[jcd],rno:r,error:e.message});}}
+const valid=lastBacktest.filter(x=>!x.error),cnt=c=>valid.filter(x=>x.judge===c).length,rate=n=>valid.length?(n/valid.length*100).toFixed(1)+'%':'-';$('kpis').innerHTML=`<div class="kpi">○本命的中率<b>${rate(cnt('○'))}</b>${cnt('○')}/${valid.length}R</div><div class="kpi">△捕捉<b>${cnt('△')}</b>R</div><div class="kpi">×捕捉<b>${cnt('×')}</b>R</div><div class="kpi">☆捕捉<b>${cnt('☆')}</b>R</div>`;$('btrows').innerHTML=lastBacktest.map(x=>x.error?`<tr><td>${x.rno}R</td><td colspan="7" class="miss">${x.error}</td></tr>`:`<tr><td>${x.rno}R</td><td>${x.main.join(' / ')}</td><td>${x.reserve.join(' / ')}</td><td>${x.caution.join(' / ')}</td><td>${x.star.join(' / ')}</td><td>${x.result}</td><td class="${x.judge==='○'?'hit-main':x.judge==='外'?'miss':'hit-sub'}">${x.judgeLabel}</td><td>${x.payout?x.payout.toLocaleString()+'円':'-'}</td></tr>`).join('');$('bt').classList.remove('hidden');$('status').textContent=`バックテスト完了🔥 本命3点的中率 ${rate(cnt('○'))}`;$('backtest').disabled=false;};
+$('excel').onclick=()=>{if(!lastBacktest.length)return alert('先にバックテストしてください');if(typeof XLSX==='undefined')return alert('Excelライブラリを読み込めませんでした');const summary=lastBacktest.map(x=>({日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,自信度:x.confidence||'',想定進入:x.entry||'',本命1:x.main?.[0]||'',本命2:x.main?.[1]||'',本命3:x.main?.[2]||'',抑え1:x.reserve?.[0]||'',抑え2:x.reserve?.[1]||'',抑え3:x.reserve?.[2]||'',注意1:x.caution?.[0]||'',注意2:x.caution?.[1]||'',注意3:x.caution?.[2]||'',穴目1:x.star?.[0]||'',穴目2:x.star?.[1]||'',穴目3:x.star?.[2]||'',実結果:x.result||'',判定:x.judgeLabel||'',払戻:x.payout??'',人気:x.popularity??'',決まり手:x.winningMethod||'',エラー:x.error||''}));const detail=[];for(const x of lastBacktest){for(const f of x.features||[])detail.push({日付:x.date,場:x.venue,R:x.rno,艇:f.lane,選手:f.name,級別:f.rank,実展示コース:f.actualCourse,START:f.scores.start,COURSE:f.scores.course,FORM:f.scores.form,MACHINE:f.scores.machine,DIRECT:f.scores.direct,ORDER:f.scores.order,今節平均ST:f.raw.meetAvgST,直近3ST:f.raw.recent3ST,今節平均着:f.raw.meetAvgFinish,直近3着:f.raw.recent3Finish,コース3連率:f.raw.courseTrioRate,モーター2連率:f.raw.motorQuinellaRate,展示タイム:f.raw.exhibitionTime,展示順位:f.raw.exhibitionRank,展示ST:f.raw.startExhibitionST});}const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary),'総合結果');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detail),'各艇内部評価');XLSX.writeFile(wb,`kyokun_backtest_${$('date').value}_${$('jcd').value}_${venues[$('jcd').value]}.xlsx`);};
 </script></body></html>

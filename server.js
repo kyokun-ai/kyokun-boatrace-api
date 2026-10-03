@@ -41,7 +41,7 @@ const clean = s => (s ?? '')
 // ========================================
 
 // ========================================
-// v3.0 TURBO CACHE
+// v3.1 TURBO CACHE+
 // Heavy repeated official pages are cached in memory.
 // Also coalesces identical in-flight requests so 8 parallel
 // backtest workers do not fetch the same page multiple times.
@@ -53,7 +53,10 @@ const CACHE_MAX = 1200;
 
 function shouldCacheOfficial(url) {
   return url.includes('/pc/data/racersearch/course?') ||
-         url.includes('/pc/race/rankingmotor?');
+         url.includes('/pc/race/rankingmotor?') ||
+         url.includes('/pc/race/racelist?') ||
+         url.includes('/pc/race/beforeinfo?') ||
+         url.includes('/pc/race/raceresult?');
 }
 
 function cachePut(key, value) {
@@ -1679,7 +1682,7 @@ app.get('/api/result', async (req,res)=>{
 app.get('/api/turbo-status', (req,res) => {
   res.json({
     ok:true,
-    version:'3.0-turbo-cache',
+    version:'3.1-turbo-cache-plus',
     cachedPages:officialHtmlCache.size,
     inflightPages:officialInflight.size,
     cacheMax:CACHE_MAX
@@ -1691,6 +1694,6 @@ app.listen(
   port,
   () =>
     console.log(
-      `Kyokun API v3.0 TURBO CACHE running on ${port}`
+      `Kyokun API v3.1 TURBO CACHE+ running on ${port}`
     )
 );

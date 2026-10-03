@@ -4,7 +4,7 @@
 <style>
 body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-system,sans-serif}.wrap{max-width:980px;margin:auto;padding:18px}h1{font-size:24px;margin:4px 0}.sub{color:#9db2c9;margin-bottom:18px}.panel,.result{background:#101d2d;border:1px solid #263b53;border-radius:16px;padding:14px;margin:12px 0}.grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px}.period{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}label{font-size:12px;color:#a9bed3}input,select,button{width:100%;box-sizing:border-box;border-radius:10px;border:1px solid #36506c;padding:11px;font-size:16px}input,select{background:#0b1725;color:white}button{background:#1687ff;color:white;font-weight:800;margin-top:10px;cursor:pointer}button.secondary{background:#263b53}button.bulk{background:#7b4dff}button.periodbtn{background:#b45b18}button:disabled{opacity:.5}.status{margin-top:12px;color:#b8cbe0;line-height:1.6}.progress{height:10px;background:#071421;border-radius:10px;overflow:hidden;margin-top:10px}.bar{height:100%;background:#1687ff;width:0%;transition:width .2s}.betbox{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}.bet{background:#071421;border-radius:10px;padding:10px;text-align:center;font-size:19px;font-weight:900}.main{border-left:4px solid #45d483}.reserve{border-left:4px solid #45a9ff}.caution{border-left:4px solid #ffb340}.star{border-left:4px solid #d47cff}.meta{font-size:14px;color:#b9cbe0;line-height:1.7}.hidden{display:none}.warn{font-size:13px;color:#ffcf70;margin-top:10px}.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.kpi{background:#071421;border-radius:10px;padding:10px;text-align:center}.kpi b{display:block;font-size:20px}.tablewrap{overflow:auto;margin-top:12px;max-height:520px}table{width:100%;border-collapse:collapse;min-width:900px;font-size:13px}th,td{padding:8px;border-bottom:1px solid #263b53;text-align:center}th{color:#9db2c9;position:sticky;top:0;background:#101d2d}.hit-main{color:#45d483;font-weight:900}.hit-sub{color:#ffcf70;font-weight:800}.miss{color:#ff7b7b}.note{font-size:12px;color:#9db2c9;margin-top:5px}@media(max-width:600px){.wrap{padding:10px}.grid{grid-template-columns:1fr 1fr}.grid>div:first-child{grid-column:1/-1}.period{grid-template-columns:1fr 1fr}.betbox{grid-template-columns:repeat(3,1fr)}.bet{font-size:16px;padding:9px 4px}.kpis{grid-template-columns:repeat(2,1fr)}h1{font-size:21px}}
 </style></head><body><div class="wrap">
-<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">STEP3-C｜12点予想・一括バックテスト版＋本番結果＋環境/直前調整データ保存</div>
+<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">STEP3-C v2.8 FAST｜12点予想・一括バックテスト高速版＋本番ST/進入/着順保存</div>
 <div class="panel">
 <div class="grid"><div><label>日付</label><input id="date" type="date"></div><div><label>場</label><select id="jcd"></select></div><div><label>R（通常予想のみ）</label><select id="rno"></select></div></div>
 <button id="predict">キョウ君に予想してもらう</button>
@@ -12,7 +12,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <button id="dayall" class="bulk">🔥 この日の開催場を全部バックテスト</button>
 <div class="period"><div><label>期間開始</label><input id="from" type="date"></div><div><label>期間終了（最大7日）</label><input id="to" type="date"></div></div>
 <button id="periodall" class="periodbtn">📅 期間内の全開催場を一括バックテスト</button>
-<div class="note">※ 一括テストではR選択欄は使用しません。開催場を自動取得し、各場1R→12Rを順番に処理します。</div>
+<div class="note">※ 一括テストではR選択欄は使用しません。開催場を自動取得し、最大4Rを同時処理します（失敗時は自動再試行）。</div>
 <div class="status" id="status">オッズは予想に使用しません。</div><div class="progress hidden" id="progress"><div class="bar" id="bar"></div></div></div>
 <div id="result" class="result hidden"><h2>🎯 キョウ君予想</h2><div class="meta" id="meta"></div><h3>○ 本命3点</h3><div class="betbox" id="main"></div><h3>△ 抑え3点</h3><div class="betbox" id="reserve"></div><h3>× 注意3点</h3><div class="betbox" id="caution"></div><h3>☆ 穴目3点</h3><div class="betbox" id="star"></div><div class="warn">※ 本評価は○本命3点のみ。△×☆は研究用です。</div></div>
 <div id="bt" class="result hidden"><h2>🧪 バックテスト結果</h2><div class="kpis" id="kpis"></div><button id="excel" class="secondary">📥 全結果をExcelに出力</button><div class="tablewrap"><table><thead><tr><th>日付</th><th>場</th><th>R</th><th>○本命3点</th><th>結果</th><th>判定</th><th>払戻</th></tr></thead><tbody id="btrows"></tbody></table></div></div>
@@ -29,30 +29,68 @@ $('predict').onclick=async()=>{const date=ymd($('date').value),jcd=$('jcd').valu
 function judge(pred,result){const t=result.trifecta;if(pred.main.includes(t))return{code:'○',label:'○本命的中'};if(pred.reserve.includes(t))return{code:'△',label:'本命ハズレ・△捕捉'};if(pred.caution.includes(t))return{code:'×',label:'本命ハズレ・×捕捉'};if(pred.star.includes(t))return{code:'☆',label:'本命ハズレ・☆捕捉'};return{code:'外',label:'完全ハズレ'}}
 function setBusy(v){for(const id of buttons)$(id).disabled=v;$('progress').classList.toggle('hidden',!v);if(!v)$('bar').style.width='100%'}
 function render(){const valid=lastBacktest.filter(x=>!x.error),cnt=c=>valid.filter(x=>x.judge===c).length,rate=n=>valid.length?(n/valid.length*100).toFixed(1)+'%':'-';$('kpis').innerHTML=`<div class="kpi">○本命的中率<b>${rate(cnt('○'))}</b>${cnt('○')}/${valid.length}R</div><div class="kpi">△捕捉<b>${cnt('△')}</b>R</div><div class="kpi">×捕捉<b>${cnt('×')}</b>R</div><div class="kpi">☆捕捉<b>${cnt('☆')}</b>R</div><div class="kpi">エラー<b>${lastBacktest.length-valid.length}</b>R</div>`;$('btrows').innerHTML=lastBacktest.map(x=>x.error?`<tr><td>${x.date}</td><td>${x.venue||x.jcd}</td><td>${x.rno}R</td><td colspan="4" class="miss">${x.error}</td></tr>`:`<tr><td>${x.date}</td><td>${x.venue}</td><td>${x.rno}R</td><td>${x.main.join(' / ')}</td><td>${x.result}</td><td class="${x.judge==='○'?'hit-main':x.judge==='外'?'miss':'hit-sub'}">${x.judgeLabel}</td><td>${x.payout?x.payout.toLocaleString()+'円':'-'}</td></tr>`).join('');$('bt').classList.remove('hidden');return{valid,cnt,rate}}
-async function runTargets(targets,label){lastBacktest=[];setBusy(true);$('bt').classList.add('hidden');let done=0,total=targets.length*12;try{for(const t of targets){for(let r=1;r<=12;r++){done++;$('bar').style.width=`${Math.round(done/total*100)}%`;$('status').textContent=`${label}\n${t.date} ${t.jcd} ${venues[t.jcd]} ${r}/12R ｜ 全体 ${done}/${total}R`;try{const {p,before}=await getPrediction(t.date,t.jcd,r);const rr=await fetch(`/api/result?date=${t.date}&jcd=${t.jcd}&rno=${r}`),result=await rr.json();if(!result.ok)throw new Error(result.message||result.error||'結果なし');const j=judge(p.prediction,result);lastBacktest.push({date:t.date,jcd:t.jcd,venue:venues[t.jcd],rno:r,logicVersion:p.version||'',confidence:p.prediction.confidence,entry:(p.entryOrder||[]).join('-'),main:p.prediction.main,reserve:p.prediction.reserve,caution:p.prediction.caution,star:p.prediction.star,result:result.trifecta,judge:j.code,judgeLabel:j.label,payout:result.payout,popularity:result.popularity,winningMethod:result.winningMethod,features:p.predictionFeatures,beforeWeather:before.weather||{},beforeRacers:before.racers||[],beforeEntryOrder:before.entryOrder||[],resultStartInfo:result.startInfo||[],resultEntryOrder:result.entryOrder||[],resultFinish:result.finish||[]})}catch(e){lastBacktest.push({date:t.date,jcd:t.jcd,venue:venues[t.jcd],rno:r,error:e.message})}render();await sleep(450)}}const s=render();$('status').textContent=`完了🔥 ${targets.length}場 / ${lastBacktest.length}R ｜ ○本命 ${s.rate(s.cnt('○'))}`}finally{setBusy(false)}}
+const FAST_CONCURRENCY=4,FAST_RETRY=2;
+async function fetchJson(url,opt){const r=await fetch(url,opt),j=await r.json();return j}
+async function runOneFast(t,r){
+ let lastErr;
+ for(let attempt=0;attempt<=FAST_RETRY;attempt++){
+  try{
+   const [predPack,result]=await Promise.all([
+    getPrediction(t.date,t.jcd,r),
+    fetchJson(`/api/result?date=${t.date}&jcd=${t.jcd}&rno=${r}`)
+   ]);
+   const p=predPack.p;
+   if(!result.ok)throw new Error(result.message||result.error||'結果なし');
+   const j=judge(p.prediction,result);
+   return {date:t.date,jcd:t.jcd,venue:venues[t.jcd],rno:r,logicVersion:p.version||'',confidence:p.prediction.confidence,entry:(p.entryOrder||[]).join('-'),main:p.prediction.main,reserve:p.prediction.reserve,caution:p.prediction.caution,star:p.prediction.star,result:result.trifecta,judge:j.code,judgeLabel:j.label,payout:result.payout,popularity:result.popularity,winningMethod:result.winningMethod,features:p.predictionFeatures,resultStartInfo:result.startInfo||[],resultEntryOrder:result.entryOrder||[],resultFinish:result.finish||[]};
+  }catch(e){
+   lastErr=e;
+   if(attempt<FAST_RETRY)await sleep(350*(attempt+1));
+  }
+ }
+ return {date:t.date,jcd:t.jcd,venue:venues[t.jcd],rno:r,error:lastErr?.message||'取得失敗'};
+}
+async function runTargets(targets,label){
+ lastBacktest=[];setBusy(true);$('bt').classList.add('hidden');
+ const jobs=[];for(const t of targets)for(let r=1;r<=12;r++)jobs.push({t,r});
+ let next=0,done=0,total=jobs.length;
+ async function worker(){
+  while(true){
+   const i=next++;if(i>=total)return;
+   const {t,r}=jobs[i];
+   const row=await runOneFast(t,r);
+   lastBacktest.push(row);done++;
+   lastBacktest.sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.jcd).localeCompare(String(b.jcd))||Number(a.rno)-Number(b.rno));
+   $('bar').style.width=`${Math.round(done/total*100)}%`;
+   $('status').textContent=`${label}【高速v2.8 / 同時${FAST_CONCURRENCY}R】\n${t.date} ${t.jcd} ${venues[t.jcd]} ${r}R ｜ 全体 ${done}/${total}R`;
+   render();
+  }
+ }
+ try{
+  await Promise.all(Array.from({length:Math.min(FAST_CONCURRENCY,total)},()=>worker()));
+  const st=render();
+  $('status').textContent=`完了🔥 高速v2.8 ${targets.length}場 / ${lastBacktest.length}R ｜ ○本命 ${st.rate(st.cnt('○'))}`;
+ }finally{setBusy(false)}
+}
 $('backtest').onclick=()=>runTargets([{date:ymd($('date').value),jcd:$('jcd').value}],'1場バックテスト');
 $('dayall').onclick=async()=>{setBusy(true);try{const date=ymd($('date').value);$('status').textContent='この日の開催場を確認中…';const vs=await getHeldVenues(date);if(!vs.length)throw new Error('この日の開催場を取得できませんでした');setBusy(false);await runTargets(vs.map(v=>({date,jcd:v.jcd})),`1日全場バックテスト（${vs.length}場）`)}catch(e){setBusy(false);$('status').textContent='エラー：'+e.message}};
 function datesBetween(a,b){const A=new Date(a+'T00:00:00'),B=new Date(b+'T00:00:00');if(isNaN(A)||isNaN(B)||B<A)throw new Error('期間指定を確認してください');const days=Math.round((B-A)/86400000)+1;if(days>7)throw new Error('期間は最大7日間です');const out=[];for(let d=new Date(A);d<=B;d.setDate(d.getDate()+1))out.push(d.toLocaleDateString('sv-SE').replaceAll('-',''));return out}
 $('periodall').onclick=async()=>{setBusy(true);try{const ds=datesBetween($('from').value,$('to').value),targets=[];for(let i=0;i<ds.length;i++){$('status').textContent=`開催場確認中 ${i+1}/${ds.length}日：${ds[i]}`;const vs=await getHeldVenues(ds[i]);for(const v of vs)targets.push({date:ds[i],jcd:v.jcd});await sleep(300)}if(!targets.length)throw new Error('期間内の開催場を取得できませんでした');setBusy(false);await runTargets(targets,`期間一括（${ds.length}日・${targets.length}場）`)}catch(e){setBusy(false);$('status').textContent='エラー：'+e.message}};
 $('excel').onclick=()=>{if(!lastBacktest.length)return alert('先にバックテストしてください');if(typeof XLSX==='undefined')return alert('Excelライブラリを読み込めませんでした');
-const summary=lastBacktest.map(x=>({日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,ロジック:x.logicVersion||'',自信度:x.confidence||'',想定進入:x.entry||'',本番進入:(x.resultEntryOrder||[]).join('-'),本命1:x.main?.[0]||'',本命2:x.main?.[1]||'',本命3:x.main?.[2]||'',抑え1:x.reserve?.[0]||'',抑え2:x.reserve?.[1]||'',抑え3:x.reserve?.[2]||'',注意1:x.caution?.[0]||'',注意2:x.caution?.[1]||'',注意3:x.caution?.[2]||'',穴目1:x.star?.[0]||'',穴目2:x.star?.[1]||'',穴目3:x.star?.[2]||'',実結果:x.result||'',判定:x.judgeLabel||'',払戻:x.payout??'',人気:x.popularity??'',決まり手:x.winningMethod||'',天候:x.beforeWeather?.weather??'',気温:x.beforeWeather?.airTemperature??'',水温:x.beforeWeather?.waterTemperature??'',風速:x.beforeWeather?.windSpeed??'',風向:x.beforeWeather?.windDirection??'',波高:x.beforeWeather?.waveHeight??'',エラー:x.error||''}));
+const summary=lastBacktest.map(x=>({日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,ロジック:x.logicVersion||'',自信度:x.confidence||'',想定進入:x.entry||'',本番進入:(x.resultEntryOrder||[]).join('-'),本命1:x.main?.[0]||'',本命2:x.main?.[1]||'',本命3:x.main?.[2]||'',抑え1:x.reserve?.[0]||'',抑え2:x.reserve?.[1]||'',抑え3:x.reserve?.[2]||'',注意1:x.caution?.[0]||'',注意2:x.caution?.[1]||'',注意3:x.caution?.[2]||'',穴目1:x.star?.[0]||'',穴目2:x.star?.[1]||'',穴目3:x.star?.[2]||'',実結果:x.result||'',判定:x.judgeLabel||'',払戻:x.payout??'',人気:x.popularity??'',決まり手:x.winningMethod||'',エラー:x.error||''}));
 const detail=[];
 for(const x of lastBacktest){
  const startByLane=Object.fromEntries((x.resultStartInfo||[]).map(s=>[Number(s.lane),s]));
  const finishByLane=Object.fromEntries((x.resultFinish||[]).map(f=>[Number(f.lane),f]));
- const beforeByLane=Object.fromEntries((x.beforeRacers||[]).map(b=>[Number(b.lane),b]));
  for(const f of x.features||[]){
-  const si=startByLane[Number(f.lane)]||{},fi=finishByLane[Number(f.lane)]||{},bi=beforeByLane[Number(f.lane)]||{};
+  const si=startByLane[Number(f.lane)]||{},fi=finishByLane[Number(f.lane)]||{};
   detail.push({日付:x.date,場:x.venue,R:x.rno,艇:f.lane,選手:f.name,級別:f.rank,実展示コース:f.actualCourse,
    本番進入:si.course??'',本番ST:si.st??'',本番F:si.flying?'F':'',着順:fi.finish??'',レースタイム:fi.time??'',
    START:f.scores.start,COURSE:f.scores.course,FORM:f.scores.form,MACHINE:f.scores.machine,DIRECT:f.scores.direct,ORDER:f.scores.order,
    今節平均ST:f.raw.meetAvgST,直近3ST:f.raw.recent3ST,今節平均着:f.raw.meetAvgFinish,直近3着:f.raw.recent3Finish,
-   コース3連率:f.raw.courseTrioRate,モーター2連率:f.raw.motorQuinellaRate,展示タイム:f.raw.exhibitionTime,展示順位:f.raw.exhibitionRank,展示ST:f.raw.startExhibitionST,
-   天候:x.beforeWeather?.weather??'',気温:x.beforeWeather?.airTemperature??'',水温:x.beforeWeather?.waterTemperature??'',風速:x.beforeWeather?.windSpeed??'',風向:x.beforeWeather?.windDirection??'',波高:x.beforeWeather?.waveHeight??'',
-   体重:bi.weight??'',チルト:bi.tilt??f.raw.tilt??'',調整重量:bi.adjustWeight??f.raw.adjustWeight??'',部品交換:bi.partsExchange??f.raw.partsExchange??'',プロペラ:bi.propeller??''});
+   コース3連率:f.raw.courseTrioRate,モーター2連率:f.raw.motorQuinellaRate,展示タイム:f.raw.exhibitionTime,展示順位:f.raw.exhibitionRank,展示ST:f.raw.startExhibitionST});
  }}
 const raceResult=[];
 for(const x of lastBacktest){if(x.error)continue;for(const s of x.resultStartInfo||[]){const fi=(x.resultFinish||[]).find(f=>Number(f.lane)===Number(s.lane))||{};raceResult.push({日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,本番進入:s.course??'',艇:s.lane??'',本番ST:s.st??'',本番F:s.flying?'F':'',着順:fi.finish??'',選手:fi.racer??'',レースタイム:fi.time??'',決まり手:x.winningMethod||''})}}
-const environment=lastBacktest.filter(x=>!x.error).map(x=>({日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,展示進入:(x.beforeEntryOrder||[]).join('-'),天候:x.beforeWeather?.weather??'',気温:x.beforeWeather?.airTemperature??'',水温:x.beforeWeather?.waterTemperature??'',風速:x.beforeWeather?.windSpeed??'',風向:x.beforeWeather?.windDirection??'',波高:x.beforeWeather?.waveHeight??''}));
-const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary),'総合結果');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detail),'各艇内部評価');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(raceResult),'本番結果詳細');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(environment),'環境データ');const dates=[...new Set(lastBacktest.map(x=>x.date))].sort();XLSX.writeFile(wb,`kyokun_backtest_${dates[0]||'data'}${dates.length>1?'-'+dates.at(-1):''}_all.xlsx`)};
+const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary),'総合結果');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detail),'各艇内部評価');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(raceResult),'本番結果詳細');const dates=[...new Set(lastBacktest.map(x=>x.date))].sort();XLSX.writeFile(wb,`kyokun_backtest_${dates[0]||'data'}${dates.length>1?'-'+dates.at(-1):''}_all.xlsx`)};
 </script></body></html>

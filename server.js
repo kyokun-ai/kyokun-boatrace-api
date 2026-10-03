@@ -1651,14 +1651,22 @@ app.get('/api/result', async (req,res)=>{
       $(table).find('tr').each((__,tr)=>{
         const cells=$(tr).find('td').map((___,td)=>clean($(td).text())).get();
         if(cells.length<3) return;
-        const pos=Number(String(cells[0]).replace(/[１-６]/g,ch=>String.fromCharCode(ch.charCodeAt(0)-0xFEE0)));
+        const finishText=clean(cells[0]||'');
+        const normalizedFinish=finishText.replace(/[１-６]/g,ch=>String.fromCharCode(ch.charCodeAt(0)-0xFEE0));
+        const pos=Number(normalizedFinish);
         const lane=Number(cells[1]);
-        if(pos>=1&&pos<=6&&lane>=1&&lane<=6) finish.push({finish:pos,lane,racer:cells[2]||null,time:cells[3]||null});
+        if(lane<1||lane>6) return;
+        // Keep non-numeric official result codes (e.g. 不/転/落/妨/失) as labels.
+        // They are valid settled outcomes, not missing data, but must never be coerced to a numeric placing.
+        if(pos>=1&&pos<=6) finish.push({finish:pos,finishCode:null,lane,racer:cells[2]||null,time:cells[3]||null});
+        else if(finishText) finish.push({finish:null,finishCode:finishText,lane,racer:cells[2]||null,time:cells[3]||null});
       });
     });
-    finish.sort((a,b)=>a.finish-b.finish);
-    if(finish.length<3) return res.status(409).json({ok:false,status:'result_not_ready',message:'結果がまだ確定していません。',source,date,jcd,rno});
-    const trifecta=`${finish[0].lane}-${finish[1].lane}-${finish[2].lane}`;
+    const numericFinish=finish.filter(x=>Number.isFinite(x.finish)).sort((a,b)=>a.finish-b.finish);
+    if(numericFinish.length<3) return res.status(409).json({ok:false,status:'result_not_ready',message:'結果がまだ確定していません。',source,date,jcd,rno});
+    // Keep all six settled outcomes in `finish`; use only numeric placings for the trifecta.
+    finish.sort((a,b)=>(Number.isFinite(a.finish)?a.finish:99)-(Number.isFinite(b.finish)?b.finish:99));
+    const trifecta=`${numericFinish[0].lane}-${numericFinish[1].lane}-${numericFinish[2].lane}`;
 
     let payout=null,popularity=null;
     $('tr').each((_,tr)=>{

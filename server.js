@@ -41,7 +41,7 @@ const clean = s => (s ?? '')
 // ========================================
 
 // ========================================
-// v3.1 TURBO CACHE+
+// v3.2 BUNDLE CACHE+
 // Heavy repeated official pages are cached in memory.
 // Also coalesces identical in-flight requests so 8 parallel
 // backtest workers do not fetch the same page multiple times.
@@ -1678,6 +1678,62 @@ app.get('/api/result', async (req,res)=>{
 });
 
 
+
+// ============================================================
+// v3.2 BACKTEST BUNDLE
+// Browser 4 requests/race -> 1 request/race.
+// Existing race/before/predict/result APIs remain the source of truth.
+// ============================================================
+app.get('/api/backtest-race', async (req,res)=>{
+  try{
+    const date=String(req.query.date||'').replace(/\D/g,'');
+    const jcd=String(req.query.jcd||'').padStart(2,'0');
+    const rno=Number(req.query.rno);
+    if(!/^\d{8}$/.test(date)||!/^\d{2}$/.test(jcd)||!(rno>=1&&rno<=12)){
+      return res.status(400).json({ok:false,error:'date/jcd/rno required'});
+    }
+    const port=process.env.PORT||3000;
+    const base=`http://127.0.0.1:${port}`;
+    const [rr,br,zr]=await Promise.all([
+      fetch(`${base}/api/race?date=${date}&jcd=${jcd}&rno=${rno}`),
+      fetch(`${base}/api/beforeinfo?date=${date}&jcd=${jcd}&rno=${rno}`),
+      fetch(`${base}/api/result?date=${date}&jcd=${jcd}&rno=${rno}`)
+    ]);
+    const [race,before,result]=await Promise.all([rr.json(),br.json(),zr.json()]);
+    if(!race.ok) throw new Error(race.error||race.status||'race failed');
+    if(!before.ok) throw new Error(before.message||before.error||'before failed');
+    if(!result.ok) throw new Error(result.message||result.error||'result failed');
+
+    const pr=await fetch(`${base}/api/predict`,{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({race,before})
+    });
+    const prediction=await pr.json();
+    if(!prediction.ok) throw new Error(prediction.error||'predict failed');
+
+    // Completeness flags: do not silently accept partial six-boat data.
+    const featureLanes=(prediction.predictionFeatures||[]).map(x=>Number(x.lane));
+    const startLanes=(result.startInfo||[]).map(x=>Number(x.lane));
+    const finishLanes=(result.finish||[]).map(x=>Number(x.lane));
+    const six=a=>a.length===6 && [1,2,3,4,5,6].every(n=>a.includes(n));
+
+    res.json({
+      ok:true,
+      version:'3.2-backtest-bundle',
+      prediction,
+      result,
+      complete:{
+        features:six(featureLanes),
+        start:six(startLanes),
+        finish:six(finishLanes)
+      }
+    });
+  }catch(error){
+    res.status(500).json({ok:false,version:'3.2-backtest-bundle',error:error.message});
+  }
+});
+
 // v3.0 cache diagnostics
 app.get('/api/turbo-status', (req,res) => {
   res.json({
@@ -1694,6 +1750,6 @@ app.listen(
   port,
   () =>
     console.log(
-      `Kyokun API v3.1 TURBO CACHE+ running on ${port}`
+      `Kyokun API v3.2 BUNDLE CACHE+ running on ${port}`
     )
 );

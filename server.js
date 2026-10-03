@@ -40,20 +40,66 @@ const clean = s => (s ?? '')
 // BOATRACE公式ページ取得
 // ========================================
 
+// ========================================
+// v3.0 TURBO CACHE
+// Heavy repeated official pages are cached in memory.
+// Also coalesces identical in-flight requests so 8 parallel
+// backtest workers do not fetch the same page multiple times.
+// Prediction logic/data parsing is unchanged.
+// ========================================
+const officialHtmlCache = new Map();
+const officialInflight = new Map();
+const CACHE_MAX = 1200;
+
+function shouldCacheOfficial(url) {
+  return url.includes('/pc/data/racersearch/course?') ||
+         url.includes('/pc/race/rankingmotor?');
+}
+
+function cachePut(key, value) {
+  if (officialHtmlCache.size >= CACHE_MAX) {
+    const first = officialHtmlCache.keys().next().value;
+    if (first !== undefined) officialHtmlCache.delete(first);
+  }
+  officialHtmlCache.set(key, value);
+}
+
 async function officialFetch(url) {
+  const cacheable = shouldCacheOfficial(url);
 
-  const response = await fetch(url, {
-    headers: {
-      'user-agent': 'Mozilla/5.0 KyokunResearch/0.6',
-      'accept-language': 'ja,en;q=0.8'
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`official HTTP ${response.status}`);
+  if (cacheable && officialHtmlCache.has(url)) {
+    return officialHtmlCache.get(url);
   }
 
-  return await response.text();
+  // Even for non-cacheable pages, merge only simultaneous identical requests.
+  if (officialInflight.has(url)) {
+    return officialInflight.get(url);
+  }
+
+  const task = (async () => {
+    const response = await fetch(url, {
+      headers: {
+        'user-agent': 'Mozilla/5.0 KyokunResearch/0.6',
+        'accept-language': 'ja,en;q=0.8'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`official HTTP ${response.status}`);
+    }
+
+    const html = await response.text();
+    if (cacheable) cachePut(url, html);
+    return html;
+  })();
+
+  officialInflight.set(url, task);
+
+  try {
+    return await task;
+  } finally {
+    officialInflight.delete(url);
+  }
 }
 
 
@@ -1629,10 +1675,22 @@ app.get('/api/result', async (req,res)=>{
 });
 
 
+// v3.0 cache diagnostics
+app.get('/api/turbo-status', (req,res) => {
+  res.json({
+    ok:true,
+    version:'3.0-turbo-cache',
+    cachedPages:officialHtmlCache.size,
+    inflightPages:officialInflight.size,
+    cacheMax:CACHE_MAX
+  });
+});
+
+
 app.listen(
   port,
   () =>
     console.log(
-      `Kyokun API v0.6 running on ${port}`
+      `Kyokun API v3.0 TURBO CACHE running on ${port}`
     )
 );

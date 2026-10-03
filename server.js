@@ -969,84 +969,54 @@ app.get('/api/race', async (req, res) => {
     }
 
     // ========================================
-// STEP2-1
-// 6選手のコース別成績を並列取得
-// ========================================
+// DATA SYSTEM v2
+// Heavy sub-fetches can be switched off in research export mode.
+// Defaults stay ON so the existing prediction API remains backward compatible.
+const includeCourseStats = String(req.query.includeCourseStats ?? '1') !== '0';
+const includePreInspection = String(req.query.includePreInspection ?? '1') !== '0';
 
-const courseResults =
-  await Promise.all(
-
-    racers.map(r =>
-      fetchCourseStats(
-        r.registration
-      )
-    )
-
+// STEP2-1: six racers' course stats (heavy: six additional source reads)
+if (includeCourseStats) {
+  const courseResults = await Promise.all(
+    racers.map(r => fetchCourseStats(r.registration))
   );
 
+  racers.forEach((racer, index) => {
+    const result = courseResults[index];
+    racer.courseStats = result?.courses ?? null;
+    if (result?.error) racer.courseStatsError = result.error;
+  });
+} else {
+  racers.forEach(racer => { racer.courseStats = null; });
+}
 
-racers.forEach((racer, index) => {
+// STEP2-4: pre-inspection/rankingmotor page.
+// Not required by the current v2 STEP①/② RAW, so research export may skip it.
+if (includePreInspection) {
+  const preInspectionResult = await fetchPreInspection(date, jcd);
 
-  const result =
-    courseResults[index];
-
-
-  racer.courseStats =
-    result?.courses
-    ?? null;
-
-
-  if (result?.error) {
-
-    racer.courseStatsError =
-      result.error;
-
-  }
-
-});
-
-// ========================================
-// STEP2-4
-// 前検タイム・モーター抽選結果を開催1回取得
-// ========================================
-
-const preInspectionResult =
-  await fetchPreInspection(date, jcd);
-
-racers.forEach(racer => {
-  const pre =
-    preInspectionResult?.racers?.[String(racer.registration)]
-    ?? null;
-
-  racer.preInspection = pre
-    ? {
-        // Prediction-use fields from the rankingmotor page.
-        time: pre.time,
-        timeRank: pre.timeRank
-      }
-    : null;
-
-  // Equipment values from rankingmotor are verification-only.
-  // Never overwrite the race-list motor/boat values when they disagree.
-  racer.equipmentCheck = pre
-    ? {
-        motorMatched:
-          racer.motor?.no != null &&
-          pre.motorNo != null
-            ? Number(racer.motor.no) === Number(pre.motorNo)
-            : null,
-        boatMatched:
-          racer.boat?.no != null &&
-          pre.boatNo != null
-            ? Number(racer.boat.no) === Number(pre.boatNo)
-            : null,
-        sourceMotorNo: pre.motorNo,
-        sourceMotorQuinellaRate: pre.motorQuinellaRate,
-        sourceBoatNo: pre.boatNo,
-        sourceBoatQuinellaRate: pre.boatQuinellaRate
-      }
-    : null;
-});
+  racers.forEach(racer => {
+    const pre = preInspectionResult?.racers?.[String(racer.registration)] ?? null;
+    racer.preInspection = pre ? { time: pre.time, timeRank: pre.timeRank } : null;
+    racer.equipmentCheck = pre
+      ? {
+          motorMatched: racer.motor?.no != null && pre.motorNo != null
+            ? Number(racer.motor.no) === Number(pre.motorNo) : null,
+          boatMatched: racer.boat?.no != null && pre.boatNo != null
+            ? Number(racer.boat.no) === Number(pre.boatNo) : null,
+          sourceMotorNo: pre.motorNo,
+          sourceMotorQuinellaRate: pre.motorQuinellaRate,
+          sourceBoatNo: pre.boatNo,
+          sourceBoatQuinellaRate: pre.boatQuinellaRate
+        }
+      : null;
+  });
+} else {
+  racers.forEach(racer => {
+    racer.preInspection = null;
+    racer.equipmentCheck = null;
+  });
+}
 
 
 

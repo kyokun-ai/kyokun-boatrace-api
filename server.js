@@ -1465,6 +1465,10 @@ function buildPredictionFeatures(race, before) {
         nationalWinRate: r.national?.winRate ?? null,
         nationalQuinellaRate: r.national?.quinellaRate ?? null,
         nationalTrioRate: r.national?.trioRate ?? null,
+        // v2 STEP② venue-specific raw inputs. Export only; do not score here.
+        localWinRate: r.local?.winRate ?? null,
+        localQuinellaRate: r.local?.quinellaRate ?? null,
+        localTrioRate: r.local?.trioRate ?? null,
         courseStatsAll: r.courseStats ?? null,
         avgST: r.avgST,
         meetAvgST,

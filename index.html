@@ -111,6 +111,8 @@ for(const x of lastBacktest){
   const row={日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,艇:f.lane,登録番号:f.registration??'',選手:f.name??'',級別:f.rank??'',支部:f.branch??'',出身地:f.birthplace??'',年齢:f.age??'',体重:f.weight??'',F:f.F??'',L:f.L??'',全国平均ST:raw.avgST??'',全国勝率:raw.nationalWinRate??'',全国2連率:raw.nationalQuinellaRate??'',全国3連率:raw.nationalTrioRate??''};
   for(let c=1;c<=6;c++){const q=cs[String(c)]||{};row[`${c}C進入率`]=q.entryRate??'';row[`${c}C3連対率`]=q.trioRate??'';row[`${c}C平均ST`]=q.avgST??'';row[`${c}C平均ST順位`]=q.avgStartRank??'';}
   // Correct-answer labels only. Never use these as STEP① prediction inputs.
+  // v2 STEP②: venue-specific raw values. Keep as blank when the official source has no value; never coerce missing to 0%.
+  row['当地勝率']=raw.localWinRate??'';row['当地2連率']=raw.localQuinellaRate??'';row['当地3連率']=raw.localTrioRate??'';
   row['正解_本番進入']=si.course??'';row['正解_本番ST']=si.st??'';row['正解_本番F']=si.flying?1:0;row['正解_着順']=fi.finish??'';row['正解_着順区分']=fi.finishCode??'';row['正解_決まり手']=x.winningMethod||'';
   step1raw.push(row);
  }}

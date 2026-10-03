@@ -1450,11 +1450,22 @@ function buildPredictionFeatures(race, before) {
 
     return {
       lane,
+      registration: r.registration,
       name: r.name,
       rank: r.rank,
+      branch: r.branch,
+      birthplace: r.birthplace,
+      age: r.age,
+      weight: r.weight,
       F: r.F,
+      L: r.L,
       actualCourse,
       raw: {
+        // v2 STEP① raw inputs. Keep these unscored so the new logic can be rebuilt from zero.
+        nationalWinRate: r.national?.winRate ?? null,
+        nationalQuinellaRate: r.national?.quinellaRate ?? null,
+        nationalTrioRate: r.national?.trioRate ?? null,
+        courseStatsAll: r.courseStats ?? null,
         avgST: r.avgST,
         meetAvgST,
         recent3ST,

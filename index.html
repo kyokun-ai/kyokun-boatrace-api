@@ -99,5 +99,20 @@ for(const x of lastBacktest){
  }}
 const raceResult=[];
 for(const x of lastBacktest){if(x.error)continue;for(const s of x.resultStartInfo||[]){const fi=(x.resultFinish||[]).find(f=>Number(f.lane)===Number(s.lane))||{};raceResult.push({日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,本番進入:s.course??'',艇:s.lane??'',本番ST:s.st??'',本番F:s.flying?'F':'',着順:fi.finish??'',選手:fi.racer??'',レースタイム:fi.time??'',決まり手:x.winningMethod||''})}}
-const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary),'総合結果');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detail),'各艇内部評価');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(raceResult),'本番結果詳細');const dates=[...new Set(lastBacktest.map(x=>x.date))].sort();XLSX.writeFile(wb,`kyokun_backtest_${dates[0]||'data'}${dates.length>1?'-'+dates.at(-1):''}_all.xlsx`)};
+// v2 STEP①: export raw nationwide racer data separately from the legacy prediction scores.
+// This sheet is the source for the new v2 logic; START/COURSE/etc. are intentionally not copied here.
+const step1raw=[];
+for(const x of lastBacktest){
+ if(x.error)continue;
+ const startByLane=Object.fromEntries((x.resultStartInfo||[]).map(s=>[Number(s.lane),s]));
+ const finishByLane=Object.fromEntries((x.resultFinish||[]).map(f=>[Number(f.lane),f]));
+ for(const f of x.features||[]){
+  const si=startByLane[Number(f.lane)]||{},fi=finishByLane[Number(f.lane)]||{},raw=f.raw||{},cs=raw.courseStatsAll||{};
+  const row={日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,艇:f.lane,登録番号:f.registration??'',選手:f.name??'',級別:f.rank??'',支部:f.branch??'',出身地:f.birthplace??'',年齢:f.age??'',体重:f.weight??'',F:f.F??'',L:f.L??'',全国平均ST:raw.avgST??'',全国勝率:raw.nationalWinRate??'',全国2連率:raw.nationalQuinellaRate??'',全国3連率:raw.nationalTrioRate??''};
+  for(let c=1;c<=6;c++){const q=cs[String(c)]||{};row[`${c}C進入率`]=q.entryRate??'';row[`${c}C3連対率`]=q.trioRate??'';row[`${c}C平均ST`]=q.avgST??'';row[`${c}C平均ST順位`]=q.avgStartRank??'';}
+  // Correct-answer labels only. Never use these as STEP① prediction inputs.
+  row['正解_本番進入']=si.course??'';row['正解_本番ST']=si.st??'';row['正解_本番F']=si.flying?'F':'';row['正解_着順']=fi.finish??'';row['正解_決まり手']=x.winningMethod||'';
+  step1raw.push(row);
+ }}
+const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary),'総合結果');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detail),'各艇内部評価');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(raceResult),'本番結果詳細');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(step1raw),'v2_①全国共通_RAW');const dates=[...new Set(lastBacktest.map(x=>x.date))].sort();XLSX.writeFile(wb,`kyokun_backtest_${dates[0]||'data'}${dates.length>1?'-'+dates.at(-1):''}_all.xlsx`)};
 </script></body></html>

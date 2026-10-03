@@ -655,6 +655,14 @@ app.get('/api/race', async (req, res) => {
 
     const $ = cheerio.load(html);
 
+    // DATA SYSTEM v2: race-level metadata available on the official race list.
+    const pageText = clean($('body').text());
+    const stableBoard = pageText.includes('安定板使用');
+    const raceName =
+      clean($('h2').first().text()) ||
+      clean($('h3').first().text()) ||
+      null;
+
     // 開催日リンクから今節の日付を取得（例: 20260926〜20260930）
     const meetDates = [...new Set(
       $('a[href]').map((_, a) => {
@@ -1042,6 +1050,8 @@ if (includePreInspection) {
 
       rno: Number(rno),
 
+      raceName,
+      stableBoard,
       meetDates,
 
       racers
@@ -1663,7 +1673,30 @@ app.get('/api/result', async (req,res)=>{
     }
     const method=(body.match(/決まり手\s*(逃げ|差し|まくり差し|まくり|抜き|恵まれ)/)||[])[1]
       || startInfo.find(x=>x.winningMethod)?.winningMethod || null;
-    res.json({ok:true,version:'2.7-step3c-bulk-backtest',source,date,jcd,rno,trifecta,payout,popularity,winningMethod:method,finish,startInfo,entryOrder:startInfo.map(x=>x.lane)});
+
+    // Preserve all payout rows for later EV/funding research without using them as prediction inputs.
+    const payouts=[];
+    $('tr').each((_,tr)=>{
+      const cells=$(tr).find('th,td').map((__,x)=>clean($(x).text())).get().filter(Boolean);
+      if(!cells.length) return;
+      const bet=cells.find(x=>/^(3連単|3連複|2連単|2連複|拡連複|単勝|複勝)$/.test(x));
+      if(!bet) return;
+      payouts.push({bet,cells});
+    });
+
+    const refundMatch=body.match(/返還[^\n]{0,160}/);
+    const remarksMatch=body.match(/備考[^\n]{0,240}/);
+    const stableBoard=body.includes('安定板使用');
+
+    res.json({
+      ok:true,version:'data-system-v2',source,date,jcd,rno,
+      trifecta,payout,popularity,winningMethod:method,
+      finish,startInfo,entryOrder:startInfo.map(x=>x.lane),
+      payouts,
+      refundText:refundMatch?refundMatch[0]:null,
+      remarksText:remarksMatch?remarksMatch[0]:null,
+      stableBoard
+    });
   } catch(error){
     console.error('result error:',error);
     res.status(500).json({ok:false,version:'2.7-step3c-bulk-backtest',error:error.message});

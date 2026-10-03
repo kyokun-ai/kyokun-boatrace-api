@@ -1684,18 +1684,23 @@ app.get('/api/result', async (req,res)=>{
       payouts.push({bet,cells});
     });
 
-    const refundMatch=body.match(/返還[^\n]{0,160}/);
-    const remarksMatch=body.match(/備考[^\n]{0,240}/);
+    // Extract refund/remarks from their own table rows only.
+    // Never regex the flattened body because that can swallow footer/CSS text.
+    let refundText=null, remarksText=null;
+    $('tr').each((_,tr)=>{
+      const cells=$(tr).find('th,td').map((__,x)=>clean($(x).text())).get().filter(Boolean);
+      if(!cells.length) return;
+      const joined=cells.join(' ');
+      if(cells.some(x=>x==='返還') || /^返還\b/.test(joined)) refundText=joined;
+      if(cells.some(x=>x==='備考') || /^備考\b/.test(joined)) remarksText=joined;
+    });
     const stableBoard=body.includes('安定板使用');
 
     res.json({
-      ok:true,version:'data-system-v2',source,date,jcd,rno,
+      ok:true,version:'data-system-v2.2',source,date,jcd,rno,
       trifecta,payout,popularity,winningMethod:method,
       finish,startInfo,entryOrder:startInfo.map(x=>x.lane),
-      payouts,
-      refundText:refundMatch?refundMatch[0]:null,
-      remarksText:remarksMatch?remarksMatch[0]:null,
-      stableBoard
+      payouts,refundText,remarksText,stableBoard
     });
   } catch(error){
     console.error('result error:',error);

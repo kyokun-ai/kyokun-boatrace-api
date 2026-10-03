@@ -10,7 +10,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 .check input{width:auto}.preset{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 @media(max-width:600px){.checks,.preset{grid-template-columns:repeat(2,1fr)}}
 </style></head><body><div class="wrap">
-<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">DATA SYSTEM v2.1｜①〜⑤＋結果＋払戻 完全分離出力</div>
+<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">DATA SYSTEM v2.2｜STEP分離＋④選手/気象分離＋結果クリーニング</div>
 <div class="panel">
 <div class="grid"><div><label>日付</label><input id="date" type="date"></div><div><label>場</label><select id="jcd"></select></div><div><label>R（通常予想のみ）</label><select id="rno"></select></div></div>
 <button id="predict">キョウ君に予想してもらう</button>
@@ -177,7 +177,7 @@ async function getResearchPack(date,jcd,rno,sel){
  return {date,jcd,rno,...out};
 }
 function researchRows(packs,sel){
- const step1=[],step2=[],step3=[],step4=[],step5=[],answers=[],ev=[];
+ const step1=[],step2=[],step3=[],step4=[],step4weather=[],step5=[],answers=[],ev=[];
  for(const x of packs){
   if(x.error)continue;
   const race=x.race||{}, before=x.before||{}, result=x.result||{};
@@ -243,10 +243,10 @@ function researchRows(packs,sel){
   }
 
   if(sel.d4){
-    step4.push({
-      日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,艇:'RACE',
+    step4weather.push({
+      日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,
       気温:before.weather?.airTemperature??'',天候:before.weather?.weather??'',
-      風速:before.weather?.windSpeed??'',風向:before.weather?.windDirection??'',
+      風速:before.weather?.windSpeed??'',
       水温:before.weather?.waterTemperature??'',波高:before.weather?.waveHeight??'',
       安定板使用:race.stableBoard===true?1:0
     });
@@ -265,7 +265,7 @@ function researchRows(packs,sel){
         スタ展コース:sx.course??'',スタ展ST:sx.st??'',スタ展F:sx.flying?1:0,
         想定進入:(before.entryOrder||[]).join('-'),枠なり:before.isWakunari===true?1:before.isWakunari===false?0:'',
         気温:before.weather?.airTemperature??'',天候:before.weather?.weather??'',
-        風速:before.weather?.windSpeed??'',風向:before.weather?.windDirection??'',
+        風速:before.weather?.windSpeed??'',
         水温:before.weather?.waterTemperature??'',波高:before.weather?.waveHeight??''
       });
     }
@@ -293,13 +293,13 @@ function researchRows(packs,sel){
     });
   }
  }
- return {step1,step2,step3,step4,step5,answers,ev};
+ return {step1,step2,step3,step4,step4weather,step5,answers,ev};
 }
 function exportResearchExcel(packs,sel){
  const rows=researchRows(packs,sel), wb=XLSX.utils.book_new();
  const add=(arr,name)=>{if(arr.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(arr),name)};
  add(rows.step1,'①全国共通_RAW'); add(rows.step2,'②場別_RAW'); add(rows.step3,'③節_RAW');
- add(rows.step4,'④当日_RAW'); add(rows.step5,'⑤直前_RAW'); add(rows.answers,'正解Y_結果'); add(rows.ev,'期待値検証_払戻');
+ add(rows.step4,'④当日_選手RAW'); add(rows.step4weather,'④当日_気象RAW'); add(rows.step5,'⑤直前_RAW'); add(rows.answers,'正解Y_結果'); add(rows.ev,'期待値検証_払戻');
  const ds=[...new Set(packs.map(x=>x.date))].sort();
  XLSX.writeFile(wb,`kyokun_v2_data_${ds[0]||'data'}${ds.length>1?'-'+ds.at(-1):''}.xlsx`);
 }

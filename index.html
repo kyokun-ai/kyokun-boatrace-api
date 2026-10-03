@@ -4,7 +4,7 @@
 <style>
 body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-system,sans-serif}.wrap{max-width:980px;margin:auto;padding:18px}h1{font-size:24px;margin:4px 0}.sub{color:#9db2c9;margin-bottom:18px}.panel,.result{background:#101d2d;border:1px solid #263b53;border-radius:16px;padding:14px;margin:12px 0}.grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px}.period{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}label{font-size:12px;color:#a9bed3}input,select,button{width:100%;box-sizing:border-box;border-radius:10px;border:1px solid #36506c;padding:11px;font-size:16px}input,select{background:#0b1725;color:white}button{background:#1687ff;color:white;font-weight:800;margin-top:10px;cursor:pointer}button.secondary{background:#263b53}button.bulk{background:#7b4dff}button.periodbtn{background:#b45b18}button:disabled{opacity:.5}.status{margin-top:12px;color:#b8cbe0;line-height:1.6}.progress{height:10px;background:#071421;border-radius:10px;overflow:hidden;margin-top:10px}.bar{height:100%;background:#1687ff;width:0%;transition:width .2s}.betbox{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}.bet{background:#071421;border-radius:10px;padding:10px;text-align:center;font-size:19px;font-weight:900}.main{border-left:4px solid #45d483}.reserve{border-left:4px solid #45a9ff}.caution{border-left:4px solid #ffb340}.star{border-left:4px solid #d47cff}.meta{font-size:14px;color:#b9cbe0;line-height:1.7}.hidden{display:none}.warn{font-size:13px;color:#ffcf70;margin-top:10px}.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.kpi{background:#071421;border-radius:10px;padding:10px;text-align:center}.kpi b{display:block;font-size:20px}.tablewrap{overflow:auto;margin-top:12px;max-height:520px}table{width:100%;border-collapse:collapse;min-width:900px;font-size:13px}th,td{padding:8px;border-bottom:1px solid #263b53;text-align:center}th{color:#9db2c9;position:sticky;top:0;background:#101d2d}.hit-main{color:#45d483;font-weight:900}.hit-sub{color:#ffcf70;font-weight:800}.miss{color:#ff7b7b}.note{font-size:12px;color:#9db2c9;margin-top:5px}@media(max-width:600px){.wrap{padding:10px}.grid{grid-template-columns:1fr 1fr}.grid>div:first-child{grid-column:1/-1}.period{grid-template-columns:1fr 1fr}.betbox{grid-template-columns:repeat(3,1fr)}.bet{font-size:16px;padding:9px 4px}.kpis{grid-template-columns:repeat(2,1fr)}h1{font-size:21px}}
 </style></head><body><div class="wrap">
-<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">STEP3-C v3.1 TURBO12｜8並列バックテスト＋速度計測＋本番ST/進入/着順保存</div>
+<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">STEP3-C v3.2 BUNDLE12｜8並列バックテスト＋速度計測＋本番ST/進入/着順保存</div>
 <div class="panel">
 <div class="grid"><div><label>日付</label><input id="date" type="date"></div><div><label>場</label><select id="jcd"></select></div><div><label>R（通常予想のみ）</label><select id="rno"></select></div></div>
 <button id="predict">キョウ君に予想してもらう</button>
@@ -35,17 +35,17 @@ async function runOneFast(t,r){
  let lastErr;
  for(let attempt=0;attempt<=FAST_RETRY;attempt++){
   try{
-   const [predPack,result]=await Promise.all([
-    getPrediction(t.date,t.jcd,r),
-    fetchJson(`/api/result?date=${t.date}&jcd=${t.jcd}&rno=${r}`)
-   ]);
-   const p=predPack.p;
-   if(!result.ok)throw new Error(result.message||result.error||'結果なし');
+   const pack=await fetchJson(`/api/backtest-race?date=${t.date}&jcd=${t.jcd}&rno=${r}`);
+   if(!pack.ok)throw new Error(pack.error||'一括取得失敗');
+   const p=pack.prediction,result=pack.result;
+   if(!pack.complete?.features||!pack.complete?.start||!pack.complete?.finish){
+     throw new Error(`6艇データ不足 features=${!!pack.complete?.features} start=${!!pack.complete?.start} finish=${!!pack.complete?.finish}`);
+   }
    const j=judge(p.prediction,result);
    return {date:t.date,jcd:t.jcd,venue:venues[t.jcd],rno:r,logicVersion:p.version||'',confidence:p.prediction.confidence,entry:(p.entryOrder||[]).join('-'),main:p.prediction.main,reserve:p.prediction.reserve,caution:p.prediction.caution,star:p.prediction.star,result:result.trifecta,judge:j.code,judgeLabel:j.label,payout:result.payout,popularity:result.popularity,winningMethod:result.winningMethod,features:p.predictionFeatures,resultStartInfo:result.startInfo||[],resultEntryOrder:result.entryOrder||[],resultFinish:result.finish||[]};
   }catch(e){
    lastErr=e;
-   if(attempt<FAST_RETRY)await sleep(350*(attempt+1));
+   if(attempt<FAST_RETRY)await sleep(250*(attempt+1));
   }
  }
  return {date:t.date,jcd:t.jcd,venue:venues[t.jcd],rno:r,error:lastErr?.message||'取得失敗'};
@@ -69,14 +69,14 @@ async function runTargets(targets,label){
    lastBacktest.push(row);done++;
    lastBacktest.sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.jcd).localeCompare(String(b.jcd))||Number(a.rno)-Number(b.rno));
    $('bar').style.width=`${Math.round(done/total*100)}%`;
-   $('status').textContent=`${label}【高速v3.1 TURBO12 / 同時${FAST_CONCURRENCY}R】\n${t.date} ${t.jcd} ${venues[t.jcd]} ${r}R ｜ 全体 ${done}/${total}R\n${speedText()}`;
+   $('status').textContent=`${label}【高速v3.2 BUNDLE12 / 同時${FAST_CONCURRENCY}R】\n${t.date} ${t.jcd} ${venues[t.jcd]} ${r}R ｜ 全体 ${done}/${total}R\n${speedText()}`;
    render();
   }
  }
  try{
   await Promise.all(Array.from({length:Math.min(FAST_CONCURRENCY,total)},()=>worker()));
   const st=render();
-  $('status').textContent=`完了🔥 v3.1 TURBO12 ${targets.length}場 / ${lastBacktest.length}R ｜ ○本命 ${st.rate(st.cnt('○'))}\n${speedText()} ｜ 同時${FAST_CONCURRENCY}R`;
+  $('status').textContent=`完了🔥 v3.2 BUNDLE12 ${targets.length}場 / ${lastBacktest.length}R ｜ ○本命 ${st.rate(st.cnt('○'))}\n${speedText()} ｜ 同時${FAST_CONCURRENCY}R`;
  }finally{setBusy(false)}
 }
 $('backtest').onclick=()=>runTargets([{date:ymd($('date').value),jcd:$('jcd').value}],'1場バックテスト');

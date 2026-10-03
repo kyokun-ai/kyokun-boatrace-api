@@ -1691,13 +1691,23 @@ app.get('/api/result', async (req,res)=>{
       const cells=$(tr).find('th,td').map((__,x)=>clean($(x).text())).get().filter(Boolean);
       if(!cells.length) return;
       const joined=cells.join(' ');
-      if(cells.some(x=>x==='返還') || /^返還\b/.test(joined)) refundText=joined;
-      if(cells.some(x=>x==='備考') || /^備考\b/.test(joined)) remarksText=joined;
+      // A header-only row such as ["返還"] / ["備考"] is not data.
+      // Store only when the row contains an actual value beyond the label.
+      const refundIdx=cells.findIndex(x=>x==='返還');
+      const remarksIdx=cells.findIndex(x=>x==='備考');
+      if(refundIdx>=0){
+        const vals=cells.filter((_,i)=>i!==refundIdx).filter(x=>x && x!=='-');
+        if(vals.length) refundText=vals.join(' ');
+      }
+      if(remarksIdx>=0){
+        const vals=cells.filter((_,i)=>i!==remarksIdx).filter(x=>x && x!=='-');
+        if(vals.length) remarksText=vals.join(' ');
+      }
     });
     const stableBoard=body.includes('安定板使用');
 
     res.json({
-      ok:true,version:'data-system-v2.2',source,date,jcd,rno,
+      ok:true,version:'data-system-v2.3',source,date,jcd,rno,
       trifecta,payout,popularity,winningMethod:method,
       finish,startInfo,entryOrder:startInfo.map(x=>x.lane),
       payouts,refundText,remarksText,stableBoard

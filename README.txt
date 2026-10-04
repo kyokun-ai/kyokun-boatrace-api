@@ -1,4 +1,4 @@
-キョウ君 BOATRACE AI v0.7 / DATA SYSTEM v2.5
+キョウ君 BOATRACE AI v0.9 / DATA SYSTEM v2.7
 
 変更点
 - 過去検証のSTEP①から、日付指定できない選手コース別ページ取得を完全停止
@@ -6,10 +6,14 @@
 - STEP②も同じracelistを共用（追加の選手ページ通信なし）
 - /api/race の includeCourseStats 既定値をOFFへ変更し、誤取得を防止
 - ③/④/⑤/Yの取得仕様と予想ロジックは変更なし
-- ①/②のみの期間取得は最大31日、軽量並列24Rを維持
+- ①/②/③/④/⑤/Yはいずれも単体取得なら最大31日。2項目以上の組み合わせ取得は最大7日
 
 重要
 過去バックテスト用Xには、任意の過去日を指定できない現在プロフィール系データを使用しません。
 
 
 v2.5: Historical ① exports no longer contain the obsolete 1C-6C current-profile course-stat columns. Formal RAW data generation restarts from DATA-0001; prior datasets are legacy only.
+
+
+v2.6: Y-only acquisition supports up to 31 days.
+v2.7: Any single selection among ①/②/③/④/⑤/Y supports up to 31 days. Any combination of two or more selections is limited to 7 days.

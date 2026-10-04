@@ -1737,49 +1737,39 @@ app.get('/api/result', async (req,res)=>{
     });
     const stableBoard=body.includes('安定板使用');
 
-    // STEP6: race-level water/weather. Wind direction on BOATRACE result pages is
-    // rendered as an image, so keep the image metadata instead of relying on body text.
+    // STEP6: race-level water/weather. BOATRACE encodes wind direction in
+    // the official CSS class is-wind1..is-wind16 (clockwise from North).
     const airTemperature=Number((body.match(/気温\s*([0-9.]+)℃/)||[])[1]);
     const windSpeed=Number((body.match(/風速\s*([0-9.]+)m/)||[])[1]);
     const waterTemperature=Number((body.match(/水温\s*([0-9.]+)℃/)||[])[1]);
     const waveHeight=Number((body.match(/波高\s*([0-9.]+)cm/)||[])[1]);
-    let windDirection=null, windDirectionRaw=null;
-    // STEP6 diagnostic: the visible wind arrow is not img_corner1_2.png.
-    // Do not guess a direction. Capture DOM metadata around the water-weather block
-    // so the real direction-bearing class/style/data attribute can be identified.
-    const weatherHeading=$('*').filter((_,el)=>clean($(el).text()).startsWith('水面気象情報')).first();
-    const meta=[];
-    const seen=new Set();
-    const pushEl=(el)=>{
-      if(!el) return; const a=$(el);
-      const attrs=el.attribs||{};
-      const attrText=Object.keys(attrs).filter(k=>/^(class|id|style|data-|aria-|src|alt|title)/i.test(k))
-        .map(k=>`${k}=${attrs[k]}`).join(';');
-      const txt=clean(a.clone().children().remove().end().text()).slice(0,80);
-      const item=`${el.tagName||el.name||''}[${attrText}]${txt?` text=${txt}`:''}`;
-      if(item&&!seen.has(item)){seen.add(item);meta.push(item);}
-    };
-    if(weatherHeading.length){
-      let root=weatherHeading;
-      for(let i=0;i<4&&root.length;i++,root=root.parent()){
-        pushEl(root[0]); root.find('*').each((_,el)=>pushEl(el));
-        root.prevAll().slice(0,2).each((_,el)=>pushEl(el));
-        root.nextAll().slice(0,4).each((_,el)=>{pushEl(el);$(el).find('*').each((__,ch)=>pushEl(ch));});
-      }
+    const windMap={1:'北',2:'北北東',3:'北東',4:'東北東',5:'東',6:'東南東',7:'南東',8:'南南東',9:'南',10:'南南西',11:'南西',12:'西南西',13:'西',14:'西北西',15:'北西',16:'北北西'};
+    let windDirection=null, windDirectionNumber=null, windDirectionRaw=null;
+    const windUnit=$('.weather1_bodyUnit.is-windDirection').first();
+    const windImage=windUnit.find('.weather1_bodyUnitImage').first();
+    const windClass=String(windImage.attr('class')||'');
+    const wm=windClass.match(/(?:^|\s)is-wind(1[0-6]|[1-9])(?:\s|$)/);
+    if(wm){
+      windDirectionNumber=Number(wm[1]);
+      windDirection=windMap[windDirectionNumber]||null;
+      windDirectionRaw='is-wind'+windDirectionNumber;
     }
-    windDirectionRaw=meta.slice(0,180).join(' | ')||null;
-    // Only calm can be determined without direction metadata. Never fabricate a compass direction.
-    if(Number.isFinite(windSpeed)&&windSpeed===0) windDirection='無風';
+    // Official zero-wind state has no direction class. Preserve it explicitly.
+    if(Number.isFinite(windSpeed)&&windSpeed===0){
+      windDirection='無風';
+      windDirectionNumber=0;
+      windDirectionRaw='calm';
+    }
     const weather={
       airTemperature:Number.isFinite(airTemperature)?airTemperature:null,
       windSpeed:Number.isFinite(windSpeed)?windSpeed:null,
       waterTemperature:Number.isFinite(waterTemperature)?waterTemperature:null,
       waveHeight:Number.isFinite(waveHeight)?waveHeight:null,
-      windDirection,windDirectionRaw
+      windDirection,windDirectionNumber,windDirectionRaw
     };
 
     res.json({
-      ok:true,version:'data-system-v3.0-step6-wind-image-diagnostic',source,date,jcd,rno,
+      ok:true,version:'data-system-v3.0-step6-wind16-final-test',source,date,jcd,rno,
       trifecta,payout,popularity,winningMethod:method,
       finish,startInfo,entryOrder:startInfo.map(x=>x.lane),
       payouts,refundText,remarksText,stableBoard,weather

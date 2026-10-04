@@ -197,7 +197,7 @@ function researchRows(packs,sel){
       if(sel.d3)step3.push({...boat});
       if(sel.d4)step4.push({...boat});
       if(sel.d5)step5.push({...boat});
-      if(sel.d6&&lane===1)step6.push({...common,風向:'',風速:'',波高:'',潮汐地点:'',満潮時刻:'',満潮潮位:'',干潮時刻:'',干潮潮位:'',潮状態:'',潮位:'',潮汐取得状態:'未取得'});
+      if(sel.d6&&lane===1)step6.push({...common,風向:'',風向番号:'',風速:'',波高:'',潮汐地点:'',満潮時刻:'',満潮潮位:'',干潮時刻:'',干潮潮位:'',潮状態:'',潮位:'',潮汐取得状態:'未取得'});
       if(sel.dy)answers.push({...boat});
     }
     if(sel.d4)step4weather.push({...common});
@@ -295,7 +295,7 @@ function researchRows(packs,sel){
 
   if(sel.d6){
     const w=result.weather||{};
-    step6.push({日付:x.date,場コード:x.jcd,場:venues[x.jcd]||'',R:x.rno,取得状態:'OK',取得エラー:'',風向:w.windDirection??'',風向画像情報:w.windDirectionRaw??'',風速:w.windSpeed??'',波高:w.waveHeight??'',潮汐地点:'',満潮時刻:'',満潮潮位:'',干潮時刻:'',干潮潮位:'',潮状態:'',潮位:'',潮汐取得状態:'気象庁連携準備中'});
+    step6.push({日付:x.date,場コード:x.jcd,場:venues[x.jcd]||'',R:x.rno,取得状態:'OK',取得エラー:'',風向:w.windDirection??'',風向番号:w.windDirectionNumber??'',風向元情報:w.windDirectionRaw??'',風速:w.windSpeed??'',波高:w.waveHeight??'',潮汐地点:'',満潮時刻:'',満潮潮位:'',干潮時刻:'',干潮潮位:'',潮状態:'',潮位:'',潮汐取得状態:'気象庁連携準備中'});
   }
   if(sel.dy){
     const lanes=new Set([...Object.keys(resultStart),...Object.keys(resultFinish)].map(Number));

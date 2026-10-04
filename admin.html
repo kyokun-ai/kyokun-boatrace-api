@@ -12,7 +12,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 @media(max-width:600px){.checks,.preset{grid-template-columns:repeat(2,1fr)}}
 </style></head><body><div class="wrap">
 <a class="homeLink" href="index.html">← メインに戻る</a>
-<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">DATA SYSTEM v2.7｜時間整合性監査済＋単体STEP月間取得</div>
+<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">DATA SYSTEM v2.9｜月間取得 完全性チェック＋FAILED固定行</div>
 <div class="panel">
 <div class="grid"><div><label>日付</label><input id="date" type="date"></div><div><label>場</label><select id="jcd"></select></div><div><label>R（通常予想のみ）</label><select id="rno"></select></div></div>
 <button id="predict">キョウ君に予想してもらう</button>
@@ -20,7 +20,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <button id="dayall" class="bulk">🔥 この日の開催場を全部バックテスト</button>
 <div class="period"><div><label>期間開始</label><input id="from" type="date"></div><div><label>期間終了（単体取得は最大31日・2項目以上の組み合わせ取得は最大7日）</label><input id="to" type="date"></div></div>
 <button id="periodall" class="periodbtn">📅 期間内の全開催場を一括バックテスト</button>
-<div class="note">※ 一括テストではR選択欄は使用しません。開催場を自動取得し、最大12Rを同時処理します（失敗時は自動再試行）。進捗に経過時間・平均秒/R・R/分を表示します。</div>
+<div class="note">※ 一括テストではR選択欄は使用しません。開催場を自動取得します。月間研究取得では開催場一覧を複数回照合し、失敗Rを再取得します。最終取得不能RもFAILED固定行としてExcelに残します。</div>
 <div class="datamode">
 <h3>📦 研究データ取得 v2</h3>
 <div class="note">必要なSTEPだけ取得します。予想計算は走らせません。過去検証①では日付指定できない選手コース別ページを取得せず、過去出走表の当時値だけを保存します。</div>
@@ -180,7 +180,24 @@ async function getResearchPack(date,jcd,rno,sel){
 function researchRows(packs,sel){
  const step1=[],step2=[],step3=[],step4=[],step4weather=[],step5=[],answers=[],ev=[];
  for(const x of packs){
-  if(x.error)continue;
+  if(x.error){
+    const err=String(x.error||'取得失敗');
+    const common={日付:x.date,場コード:x.jcd,場:venues[x.jcd]||'',R:x.rno,取得状態:'FAILED',取得エラー:err};
+    // Keep the race key and six boat keys even when the source page cannot be acquired.
+    // This prevents row drift when STEP files are joined later by 日付+場コード+R+艇.
+    for(let lane=1;lane<=6;lane++){
+      const boat={...common,艇:lane};
+      if(sel.d1)step1.push({...boat});
+      if(sel.d2)step2.push({...boat});
+      if(sel.d3)step3.push({...boat});
+      if(sel.d4)step4.push({...boat});
+      if(sel.d5)step5.push({...boat});
+      if(sel.dy)answers.push({...boat});
+    }
+    if(sel.d4)step4weather.push({...common});
+    if(sel.dy)ev.push({...common});
+    continue;
+  }
   const race=x.race||{}, before=x.before||{}, result=x.result||{};
   const startExByLane=Object.fromEntries((before.startExhibition||[]).map(r=>[Number(r.lane),r]));
   const resultStart=Object.fromEntries((result.startInfo||[]).map(r=>[Number(r.lane),r]));
@@ -189,7 +206,7 @@ function researchRows(packs,sel){
 
   if(sel.d1||sel.d2||sel.d3||sel.d4){
    for(const r of racers){
-    const base={日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,艇:r.lane,登録番号:r.registration??'',選手:r.name??''};
+    const base={日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,艇:r.lane,取得状態:'OK',取得エラー:'',登録番号:r.registration??'',選手:r.name??''};
 
     if(sel.d1){
       const row={...base,級別:r.rank??'',支部:r.branch??'',出身地:r.birthplace??'',年齢:r.age??'',体重:r.weight??'',F:r.F??'',L:r.L??'',全国平均ST:r.avgST??'',全国勝率:r.national?.winRate??'',全国2連率:r.national?.quinellaRate??'',全国3連率:r.national?.trioRate??''};
@@ -243,7 +260,7 @@ function researchRows(packs,sel){
 
   if(sel.d4){
     step4weather.push({
-      日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,
+      日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,取得状態:'OK',取得エラー:'',
       気温:before.weather?.airTemperature??'',天候:before.weather?.weather??'',
       風速:before.weather?.windSpeed??'',
       水温:before.weather?.waterTemperature??'',波高:before.weather?.waveHeight??'',
@@ -256,7 +273,7 @@ function researchRows(packs,sel){
       const sx=startExByLane[Number(r.lane)]||{};
       const pr=r.previousRace||{};
       step5.push({
-        日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,艇:r.lane,選手:r.name??'',
+        日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,艇:r.lane,取得状態:'OK',取得エラー:'',選手:r.name??'',
         体重:r.weight??'',調整重量:r.adjustWeight??'',展示タイム:r.exhibitionTime??'',チルト:r.tilt??'',
         プロペラ:r.propeller??'',部品交換:r.partsExchange??'',
         前走R:pr.raceNo??'',前走進入:pr.course??'',前走ST:pr.st??'',前走F:pr.flying?1:0,
@@ -275,7 +292,7 @@ function researchRows(packs,sel){
     for(const lane of [...lanes].sort((a,b)=>a-b)){
       const s=resultStart[lane]||{},f=resultFinish[lane]||{};
       answers.push({
-        日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,艇:lane,
+        日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,艇:lane,取得状態:'OK',取得エラー:'',
         本番進入:s.course??'',本番ST:s.st??'',本番F:s.flying?1:0,
         着順:f.finish??'',着順区分:f.finishCode??'',選手:f.racer??'',レースタイム:f.time??'',
         決まり手:result.winningMethod??'','3連単':result.trifecta??'',
@@ -285,7 +302,7 @@ function researchRows(packs,sel){
       });
     }
     ev.push({
-      日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,
+      日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,取得状態:'OK',取得エラー:'',
       '3連単':result.trifecta??'','3連単払戻':result.payout??'','3連単人気':result.popularity??'',
       決まり手:result.winningMethod??'',返還情報:result.refundText??'',備考:result.remarksText??'',
       全払戻JSON:JSON.stringify(result.payouts||[])
@@ -311,41 +328,78 @@ $('dataPeriod').onclick=async()=>{
   const longRange=selectedCount===1; // v2.7: any single STEP/Y can run up to 31 days; combinations stay at 7 days
   const maxDays=longRange?31:7;
   const ds=datesBetween($('from').value,$('to').value,maxDays),targets=[];
+  // v2.8: venue discovery is itself retried and unioned. A transient empty/partial index response
+  // must not silently erase a whole day/venue from a month export.
+  async function getHeldVenuesVerified(date){
+    const byCode=new Map(); let lastErr=null;
+    for(let attempt=0;attempt<3;attempt++){
+      try{
+        const vs=await getHeldVenues(date);
+        for(const v of vs||[])if(v?.jcd)byCode.set(String(v.jcd),v);
+      }catch(e){lastErr=e}
+      if(attempt<2)await sleep(350*(attempt+1));
+    }
+    if(!byCode.size)throw new Error(`${date} の開催場一覧を3回取得できませんでした${lastErr?`：${lastErr.message}`:''}`);
+    return [...byCode.values()].sort((a,b)=>String(a.jcd).localeCompare(String(b.jcd)));
+  }
   for(let i=0;i<ds.length;i++){
-    $('status').textContent=`研究データ：開催場確認中 ${i+1}/${ds.length}日 ${ds[i]}`;
-    const vs=await getHeldVenues(ds[i]); for(const v of vs)targets.push({date:ds[i],jcd:v.jcd});
+    $('status').textContent=`研究データ：開催場照合中 ${i+1}/${ds.length}日 ${ds[i]}（3回照合）`;
+    const vs=await getHeldVenuesVerified(ds[i]);
+    for(const v of vs)targets.push({date:ds[i],jcd:v.jcd});
   }
   const jobs=[];for(const t of targets)for(let r=1;r<=12;r++)jobs.push({t,r});
-  // v2.7: any single STEP/Y export may run month-scale; combinations remain limited to 7 days.
-  // Prediction logic is unchanged; this only changes transport/cache behavior.
-  const researchConcurrency=longRange?24:FAST_CONCURRENCY; // v2.7: single-item month-scale acquisition
-  let next=0,done=0;const packs=[];const started=performance.now();
-  async function getResearchPackRetry(date,jcd,rno,sel){
+  // v2.8: favor completeness over peak throughput. Failed jobs are re-run in explicit recovery rounds.
+  const researchConcurrency=longRange?12:FAST_CONCURRENCY;
+  const started=performance.now();
+  async function getResearchPackRetry(date,jcd,rno,sel,attempts=4){
     let lastErr;
-    for(let attempt=0;attempt<3;attempt++){
+    for(let attempt=0;attempt<attempts;attempt++){
       try{return await getResearchPack(date,jcd,rno,sel)}
-      catch(e){lastErr=e;if(attempt<2)await new Promise(r=>setTimeout(r,250*(attempt+1)))}
+      catch(e){lastErr=e;if(attempt<attempts-1)await sleep(400*(attempt+1))}
     }
     throw lastErr;
   }
-  async function worker(){
-    while(true){
-      const i=next++;if(i>=jobs.length)return;const {t,r}=jobs[i];
-      let row;
-      try{row=await getResearchPackRetry(t.date,t.jcd,r,sel)}
-      catch(e){row={date:t.date,jcd:t.jcd,rno:r,error:e.message}}
-      packs.push(row);done++;
-      $('bar').style.width=`${Math.round(done/jobs.length*100)}%`;
-      const sec=Math.max((performance.now()-started)/1000,.001),rpm=done/sec*60;
-      $('status').textContent=`研究データ取得 ${done}/${jobs.length}R ｜ ${rpm.toFixed(1)}R/分 ｜ 同時${researchConcurrency}R`;
+  async function runJobBatch(batch,roundLabel){
+    let next=0,done=0;const out=[];
+    async function worker(){
+      while(true){
+        const i=next++;if(i>=batch.length)return;const {t,r}=batch[i];
+        let row;
+        try{row=await getResearchPackRetry(t.date,t.jcd,r,sel)}
+        catch(e){row={date:t.date,jcd:t.jcd,rno:r,error:e.message}}
+        out.push(row);done++;
+        const sec=Math.max((performance.now()-started)/1000,.001),rpm=done/sec*60;
+        $('bar').style.width=`${Math.round(done/batch.length*100)}%`;
+        $('status').textContent=`${roundLabel} ${done}/${batch.length}R ｜ ${rpm.toFixed(1)}R/分 ｜ 同時${researchConcurrency}R`;
+      }
     }
+    await Promise.all(Array.from({length:Math.min(researchConcurrency,batch.length)},()=>worker()));
+    return out;
   }
-  await Promise.all(Array.from({length:Math.min(researchConcurrency,jobs.length)},()=>worker()));
+  let packs=await runJobBatch(jobs,'研究データ取得');
+  // Explicit recovery rounds: replace only failed keys, never duplicate successful rows.
+  for(let recovery=1;recovery<=3;recovery++){
+    const failed=packs.filter(x=>x.error);
+    if(!failed.length)break;
+    $('status').textContent=`欠落自動再取得 ${recovery}/3 ｜ ${failed.length}Rを再確認中…`;
+    await sleep(700*recovery);
+    const retryJobs=failed.map(x=>({t:{date:x.date,jcd:x.jcd},r:x.rno}));
+    const retried=await runJobBatch(retryJobs,`欠落再取得 ${recovery}/3`);
+    const retryMap=new Map(retried.map(x=>[`${x.date}|${x.jcd}|${x.rno}`,x]));
+    packs=packs.map(x=>x.error?(retryMap.get(`${x.date}|${x.jcd}|${x.rno}`)||x):x);
+  }
   packs.sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.jcd).localeCompare(String(b.jcd))||a.rno-b.rno);
   const errors=packs.filter(x=>x.error);
   if(packs.length===errors.length)throw new Error('全レース取得失敗');
+  // Hard completeness guard: never call an export "complete" when planned race keys disappeared.
+  const plannedKeys=new Set(jobs.map(({t,r})=>`${t.date}|${t.jcd}|${r}`));
+  const actualKeys=new Set(packs.map(x=>`${x.date}|${x.jcd}|${x.rno}`));
+  const vanished=[...plannedKeys].filter(k=>!actualKeys.has(k));
+  if(vanished.length)throw new Error(`内部完全性エラー：${vanished.length}Rの取得キーが消失しました。Excelは出力しません。`);
   exportResearchExcel(packs,sel);
-  $('status').textContent=`研究データ取得完了🔥 ${ds.length}日 ｜ ${packs.length-errors.length}/${packs.length}R成功 ｜ Excel出力済み${errors.length?` ｜ エラー${errors.length}R`:''}`;
+  const dayCounts=Object.fromEntries(ds.map(d=>[d,packs.filter(x=>x.date===d&&!x.error).length]));
+  const zeroDays=ds.filter(d=>!dayCounts[d]);
+  $('status').textContent=`研究データ取得完了🔥 ${ds.length}日 ｜ ${packs.length-errors.length}/${packs.length}R成功 ｜ Excel出力済み${errors.length?` ｜ FAILED固定行${errors.length}R（公式中止等を含む・Excel内に保持）`:''}${zeroDays.length?` ｜ ⚠成功0R日:${zeroDays.join(',')}`:' ｜ 日別0Rなし'}`;
  }catch(e){$('status').textContent='エラー：'+e.message}
  finally{setBusy(false)}
 };

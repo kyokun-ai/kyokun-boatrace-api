@@ -12,7 +12,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 @media(max-width:600px){.checks,.preset{grid-template-columns:repeat(2,1fr)}}
 </style></head><body><div class="wrap">
 <a class="homeLink" href="index.html">← メインに戻る</a>
-<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">DATA SYSTEM v2.9｜月間取得 完全性チェック＋FAILED固定行</div>
+<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">DATA SYSTEM v3.0｜月間取得 完全性チェック＋CANCELLED/FAILED固定行</div>
 <div class="panel">
 <div class="grid"><div><label>日付</label><input id="date" type="date"></div><div><label>場</label><select id="jcd"></select></div><div><label>R（通常予想のみ）</label><select id="rno"></select></div></div>
 <button id="predict">キョウ君に予想してもらう</button>
@@ -20,7 +20,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <button id="dayall" class="bulk">🔥 この日の開催場を全部バックテスト</button>
 <div class="period"><div><label>期間開始</label><input id="from" type="date"></div><div><label>期間終了（単体取得は最大31日・2項目以上の組み合わせ取得は最大7日）</label><input id="to" type="date"></div></div>
 <button id="periodall" class="periodbtn">📅 期間内の全開催場を一括バックテスト</button>
-<div class="note">※ 一括テストではR選択欄は使用しません。開催場を自動取得します。月間研究取得では開催場一覧を複数回照合し、失敗Rを再取得します。最終取得不能RもFAILED固定行としてExcelに残します。</div>
+<div class="note">※ 一括テストではR選択欄は使用しません。開催場を自動取得します。月間研究取得では開催場一覧を複数回照合し、失敗Rを再取得します。最終取得不能Rも固定行としてExcelに残し、公式中止等はCANCELLED、通信・解析等の取得失敗はFAILEDとして区別します。</div>
 <div class="datamode">
 <h3>📦 研究データ取得 v2</h3>
 <div class="note">必要なSTEPだけ取得します。予想計算は走らせません。過去検証①では日付指定できない選手コース別ページを取得せず、過去出走表の当時値だけを保存します。</div>
@@ -182,7 +182,11 @@ function researchRows(packs,sel){
  for(const x of packs){
   if(x.error){
     const err=String(x.error||'取得失敗');
-    const common={日付:x.date,場コード:x.jcd,場:venues[x.jcd]||'',R:x.rno,取得状態:'FAILED',取得エラー:err};
+    // Historical result pages return this family of messages when the race was cancelled / no result was established.
+    // Keep CANCELLED separate from true transport/parser failures so FAILED=0 can be used as the acquisition-quality gate.
+    const isCancelled=/結果がまだ確定していません|レース中止|中止順延|開催中止|不成立|返還.*中止/.test(err);
+    const state=isCancelled?'CANCELLED':'FAILED';
+    const common={日付:x.date,場コード:x.jcd,場:venues[x.jcd]||'',R:x.rno,取得状態:state,取得エラー:err};
     // Keep the race key and six boat keys even when the source page cannot be acquired.
     // This prevents row drift when STEP files are joined later by 日付+場コード+R+艇.
     for(let lane=1;lane<=6;lane++){
@@ -390,7 +394,10 @@ $('dataPeriod').onclick=async()=>{
   }
   packs.sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.jcd).localeCompare(String(b.jcd))||a.rno-b.rno);
   const errors=packs.filter(x=>x.error);
-  if(packs.length===errors.length)throw new Error('全レース取得失敗');
+  // Do not abort when every planned race is CANCELLED; fixed rows are still valid output.
+  // Only a true FAILED condition is a data-acquisition defect.
+  const cancelledErrors=errors.filter(x=>/結果がまだ確定していません|レース中止|中止順延|開催中止|不成立|返還.*中止/.test(String(x.error||'')));
+  const failedErrors=errors.filter(x=>!cancelledErrors.includes(x));
   // Hard completeness guard: never call an export "complete" when planned race keys disappeared.
   const plannedKeys=new Set(jobs.map(({t,r})=>`${t.date}|${t.jcd}|${r}`));
   const actualKeys=new Set(packs.map(x=>`${x.date}|${x.jcd}|${x.rno}`));
@@ -399,7 +406,9 @@ $('dataPeriod').onclick=async()=>{
   exportResearchExcel(packs,sel);
   const dayCounts=Object.fromEntries(ds.map(d=>[d,packs.filter(x=>x.date===d&&!x.error).length]));
   const zeroDays=ds.filter(d=>!dayCounts[d]);
-  $('status').textContent=`研究データ取得完了🔥 ${ds.length}日 ｜ ${packs.length-errors.length}/${packs.length}R成功 ｜ Excel出力済み${errors.length?` ｜ FAILED固定行${errors.length}R（公式中止等を含む・Excel内に保持）`:''}${zeroDays.length?` ｜ ⚠成功0R日:${zeroDays.join(',')}`:' ｜ 日別0Rなし'}`;
+  const okCount=packs.length-errors.length;
+  const quality=failedErrors.length===0?'取得品質OK':'⚠要再取得';
+  $('status').textContent=`研究データ取得完了🔥 ${ds.length}日 ｜ OK ${okCount}R / CANCELLED ${cancelledErrors.length}R / FAILED ${failedErrors.length}R ｜ ${quality} ｜ Excel出力済み${zeroDays.length?` ｜ 成功0R日:${zeroDays.join(',')}`:' ｜ 日別0Rなし'}`;
  }catch(e){$('status').textContent='エラー：'+e.message}
  finally{setBusy(false)}
 };

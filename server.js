@@ -1737,22 +1737,48 @@ app.get('/api/result', async (req,res)=>{
     });
     const stableBoard=body.includes('安定板使用');
 
-    // DATA SYSTEM v3.1 STEP⑥: settled-race water/weather metadata.
-    // Direction may be rendered as text or image metadata depending on the official page version.
-    const imageMeta=$('img').map((_,img)=>[ $(img).attr('alt'),$(img).attr('title'),$(img).attr('class'),$(img).attr('src') ].filter(Boolean).join(' ')).get().join(' ');
-    const directionSource=`${body} ${imageMeta}`;
-    const directionWords=['無風','北','北北東','北東','東北東','東','東南東','南東','南南東','南','南南西','南西','西南西','西','西北西','北西','北北西','追い風','向い風','向かい風','左横風','右横風'];
-    let windDirection=null;
-    for(const word of directionWords){ if(directionSource.includes(word)){windDirection=word;break;} }
-    const windSpeedMatch=body.match(/風速\s*(\d+(?:\.\d+)?)\s*m/);
-    const waveHeightMatch=body.match(/波高\s*(\d+(?:\.\d+)?)\s*cm/);
-    const resultWeather={windDirection,windSpeed:windSpeedMatch?Number(windSpeedMatch[1]):null,waveHeight:waveHeightMatch?Number(waveHeightMatch[1]):null};
+    // STEP6: race-level water/weather. Wind direction on BOATRACE result pages is
+    // rendered as an image, so keep the image metadata instead of relying on body text.
+    const airTemperature=Number((body.match(/気温\s*([0-9.]+)℃/)||[])[1]);
+    const windSpeed=Number((body.match(/風速\s*([0-9.]+)m/)||[])[1]);
+    const waterTemperature=Number((body.match(/水温\s*([0-9.]+)℃/)||[])[1]);
+    const waveHeight=Number((body.match(/波高\s*([0-9.]+)cm/)||[])[1]);
+    let windDirection=null, windDirectionRaw=null;
+    // Search only around the water-weather heading and capture direction-bearing image metadata.
+    const weatherHeading=$('*').filter((_,el)=>clean($(el).text())==='水面気象情報').first();
+    const weatherRoot=weatherHeading.length ? weatherHeading.parent() : null;
+    const candidates=[];
+    const pushImg=(el)=>{
+      const a=$(el); const raw=[a.attr('alt'),a.attr('title'),a.attr('src'),a.attr('class'),a.attr('style')].filter(Boolean).join(' ');
+      if(raw) candidates.push(raw);
+    };
+    if(weatherRoot&&weatherRoot.length) weatherRoot.find('img').each((_,el)=>pushImg(el));
+    if(!candidates.length){
+      $('img').each((_,el)=>{ const a=$(el),src=String(a.attr('src')||''); if(/wind|weather|kaze|corner/i.test(src)) pushImg(el); });
+    }
+    const raw=candidates.join(' | '); windDirectionRaw=raw||null;
+    const dirPatterns=[
+      ['北東',/(北東|NE|north.?east)/i],['南東',/(南東|SE|south.?east)/i],
+      ['南西',/(南西|SW|south.?west)/i],['北西',/(北西|NW|north.?west)/i],
+      ['北',/(?:^|[^東西南])(北)(?:$|[^東西南])|north/i],['東',/(?:^|[^北南])(東)(?:$|[^北南])|east/i],
+      ['南',/(?:^|[^東西北])(南)(?:$|[^東西北])|south/i],['西',/(?:^|[^北南])(西)(?:$|[^北南])|west/i]
+    ];
+    for(const [label,re] of dirPatterns){ if(re.test(raw)){windDirection=label;break;} }
+    // Calm is a valid state: direction is intentionally '無風' when official wind speed is zero.
+    if(Number.isFinite(windSpeed)&&windSpeed===0) windDirection='無風';
+    const weather={
+      airTemperature:Number.isFinite(airTemperature)?airTemperature:null,
+      windSpeed:Number.isFinite(windSpeed)?windSpeed:null,
+      waterTemperature:Number.isFinite(waterTemperature)?waterTemperature:null,
+      waveHeight:Number.isFinite(waveHeight)?waveHeight:null,
+      windDirection,windDirectionRaw
+    };
 
     res.json({
-      ok:true,version:'data-system-v2.3',source,date,jcd,rno,
+      ok:true,version:'data-system-v3.0-step6-wind-image-diagnostic',source,date,jcd,rno,
       trifecta,payout,popularity,winningMethod:method,
       finish,startInfo,entryOrder:startInfo.map(x=>x.lane),
-      payouts,refundText,remarksText,stableBoard,weather:resultWeather
+      payouts,refundText,remarksText,stableBoard,weather
     });
   } catch(error){
     console.error('result error:',error);

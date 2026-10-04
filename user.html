@@ -1,0 +1,29 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>予想</title>
+<style>*{box-sizing:border-box}body{font-family:-apple-system,sans-serif;background:#07111f;color:#eef5ff;margin:0}.w{max-width:950px;margin:auto;padding:18px}a{color:#8dc8ff}
+table{width:100%;border-collapse:collapse;background:#102034;border-radius:12px;overflow:hidden}th,td{padding:8px;border-bottom:1px solid #24384f;text-align:center}input{width:88px;padding:8px;border-radius:8px;border:1px solid #38516e;background:#091524;color:white}
+button{width:100%;padding:14px;margin:15px 0;border:0;border-radius:12px;font-weight:700;font-size:16px}.note{color:#9fb2c9}.result{background:#102034;padding:15px;border-radius:14px;margin-top:14px}.rank{font-size:20px;font-weight:700}</style></head>
+<body><main class="w"><p><a href="index.html">←入口</a></p><h1>🚤 ①② 基礎予想</h1>
+<p class="note">全国勝率と「今回のコース」の全国3連対率を入力。②は現在補正なしなので①評価をそのまま通過します。</p>
+<div style="overflow:auto"><table><thead><tr><th>艇</th><th>選手</th><th>全国勝率</th><th>現コース3連対率%</th></tr></thead><tbody id="rows"></tbody></table></div>
+<button onclick="calc()">①②評価を実行</button><div id="out"></div>
+<script>
+const boatAdj=[0,0,-1.7,-1.9,-2.0,-2.6,-3.0];
+const C={wrMean:5.29233035,wrSd:1.32939332,diffMean:0.00237223,diffSd:1.07958259,c3DiffSd:22.87066632};
+let html="";for(let i=1;i<=6;i++)html+=`<tr><td>${i}</td><td><input id="n${i}" placeholder="選手${i}"></td><td><input id="w${i}" type="number" step=".01"></td><td><input id="c${i}" type="number" step=".1"></td></tr>`;document.getElementById("rows").innerHTML=html;
+function num(id){let v=parseFloat(document.getElementById(id).value);return Number.isFinite(v)?v:null}
+function calc(){
+ const ws=[1,2,3,4,5,6].map(i=>num("w"+i)), cs=[1,2,3,4,5,6].map(i=>num("c"+i));
+ const validW=ws.filter(v=>v!==null),validC=cs.filter(v=>v!==null);
+ const mw=validW.length?validW.reduce((a,b)=>a+b,0)/validW.length:null, mc=validC.length?validC.reduce((a,b)=>a+b,0)/validC.length:null;
+ let r=[];
+ for(let j=0;j<6;j++){let i=j+1,w=ws[j],c=cs[j];
+   let zAbs=w===null?0:(w-C.wrMean)/C.wrSd;
+   let zWD=(w===null||mw===null)?0:((w-mw)-C.diffMean)/C.diffSd;
+   let zC=(c===null||mc===null)?0:(c-mc)/C.c3DiffSd;
+   let s=boatAdj[i]+.16*zAbs+.68*zWD+.25*zC;
+   r.push({boat:i,name:document.getElementById("n"+i).value||("選手"+i),score:s,zAbs,zWD,zC});
+ }
+ r.sort((a,b)=>b.score-a.score);
+ document.getElementById("out").innerHTML='<div class="result"><div class="rank">①②順位：'+r.map(x=>x.boat).join(" → ")+'</div><p class="note">②補正値は全艇 0（現在の正式仕様）</p>'+r.map((x,k)=>`<p>${k+1}位　${x.boat}号艇 ${x.name}　②通過スコア <b>${x.score.toFixed(4)}</b><br><small>全国勝率Z ${x.zAbs.toFixed(3)} / 全国勝率6艇差Z ${x.zWD.toFixed(3)} / 現コース3連対率6艇差Z ${x.zC.toFixed(3)}</small></p>`).join("")+'</div>';
+}
+</script></main></body></html>

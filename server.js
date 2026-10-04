@@ -49,7 +49,7 @@ const clean = s => (s ?? '')
 // ========================================
 const officialHtmlCache = new Map();
 const officialInflight = new Map();
-const CACHE_MAX = 1200;
+const CACHE_MAX = 6000; // v0.5: month-scale STEP① cache; avoids re-fetching the same racer course page
 
 function shouldCacheOfficial(url) {
   return url.includes('/pc/data/racersearch/course?') ||

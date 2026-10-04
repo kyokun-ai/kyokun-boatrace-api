@@ -318,20 +318,31 @@ $('dataPeriod').onclick=async()=>{
     const vs=await getHeldVenues(ds[i]); for(const v of vs)targets.push({date:ds[i],jcd:v.jcd});
   }
   const jobs=[];for(const t of targets)for(let r=1;r<=12;r++)jobs.push({t,r});
+  // v0.5 STEP① fast path: month-scale ①/② export can safely use more workers.
+  // Prediction logic is unchanged; this only changes transport/cache behavior.
+  const researchConcurrency=lightOnly?24:FAST_CONCURRENCY;
   let next=0,done=0;const packs=[];const started=performance.now();
+  async function getResearchPackRetry(date,jcd,rno,sel){
+    let lastErr;
+    for(let attempt=0;attempt<3;attempt++){
+      try{return await getResearchPack(date,jcd,rno,sel)}
+      catch(e){lastErr=e;if(attempt<2)await new Promise(r=>setTimeout(r,250*(attempt+1)))}
+    }
+    throw lastErr;
+  }
   async function worker(){
     while(true){
       const i=next++;if(i>=jobs.length)return;const {t,r}=jobs[i];
       let row;
-      try{row=await getResearchPack(t.date,t.jcd,r,sel)}
+      try{row=await getResearchPackRetry(t.date,t.jcd,r,sel)}
       catch(e){row={date:t.date,jcd:t.jcd,rno:r,error:e.message}}
       packs.push(row);done++;
       $('bar').style.width=`${Math.round(done/jobs.length*100)}%`;
       const sec=Math.max((performance.now()-started)/1000,.001),rpm=done/sec*60;
-      $('status').textContent=`研究データ取得 ${done}/${jobs.length}R ｜ ${rpm.toFixed(1)}R/分`;
+      $('status').textContent=`研究データ取得 ${done}/${jobs.length}R ｜ ${rpm.toFixed(1)}R/分 ｜ 同時${researchConcurrency}R`;
     }
   }
-  await Promise.all(Array.from({length:Math.min(FAST_CONCURRENCY,jobs.length)},()=>worker()));
+  await Promise.all(Array.from({length:Math.min(researchConcurrency,jobs.length)},()=>worker()));
   packs.sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.jcd).localeCompare(String(b.jcd))||a.rno-b.rno);
   const errors=packs.filter(x=>x.error);
   if(packs.length===errors.length)throw new Error('全レース取得失敗');

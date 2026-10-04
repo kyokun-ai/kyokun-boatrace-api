@@ -1760,6 +1760,11 @@ app.get('/api/result', async (req,res)=>{
       windDirectionNumber=0;
       windDirectionRaw='calm';
     }
+    const deadlineTimes=[];
+    $('tr').each((_,tr)=>{ const cells=$(tr).find('th,td').map((__,x)=>clean($(x).text())).get(); if(cells[0]==='締切予定時刻') deadlineTimes.push(...cells.slice(1).filter(x=>/^\d{1,2}:\d{2}$/.test(x))); });
+    const deadline=deadlineTimes[Number(rno)-1]||null;
+    let tide={station:'',status:'未取得'};
+    try{ tide=await fetchStep6Tide(date,jcd,rno,deadline); }catch(e){ tide={station:STEP6_TIDE_STATIONS[String(jcd).padStart(2,'0')]?.name||'',status:'取得失敗:'+e.message}; }
     const weather={
       airTemperature:Number.isFinite(airTemperature)?airTemperature:null,
       windSpeed:Number.isFinite(windSpeed)?windSpeed:null,
@@ -1771,7 +1776,7 @@ app.get('/api/result', async (req,res)=>{
     res.json({
       ok:true,version:'data-system-v3.0-step6-wind16-final-test',source,date,jcd,rno,
       trifecta,payout,popularity,winningMethod:method,
-      finish,startInfo,entryOrder:startInfo.map(x=>x.lane),
+      finish,startInfo,entryOrder:startInfo.map(x=>x.lane),deadline,tide,
       payouts,refundText,remarksText,stableBoard,weather
     });
   } catch(error){
@@ -1782,6 +1787,60 @@ app.get('/api/result', async (req,res)=>{
 
 
 // v3.0 cache diagnostics
+
+
+// STEP6 tide test: only venue->JMA stations with an explicit, reviewed mapping are enabled.
+// Unmapped/non-tidal venues stay blank rather than receiving guessed tide data.
+const STEP6_TIDE_STATIONS={
+  '04':{code:'TK',name:'東京'},      // 平和島
+  '14':{code:'KM',name:'小松島'},   // 鳴門
+  '16':{code:'UN',name:'宇野'},     // 児島
+  '17':{code:'166744',name:'広島'}, // 宮島
+  '20':{code:'MO',name:'門司'}      // 若松
+};
+const step6TideCache=new Map();
+function hmToMin(v){const m=String(v||'').match(/^(\d{1,2}):(\d{2})$/);return m?Number(m[1])*60+Number(m[2]):null;}
+async function fetchStep6Tide(date,jcd,rno,deadline){
+  const st=STEP6_TIDE_STATIONS[String(jcd).padStart(2,'0')];
+  if(!st) return {station:'',status:'対象外または対応地点未確定'};
+  const y=date.slice(0,4), mo=date.slice(4,6), d=date.slice(6,8), key=`${date}:${st.code}`;
+  let parsed=step6TideCache.get(key);
+  if(!parsed){
+    const url=`https://www.data.jma.go.jp/kaiyou/db/tide/suisan/suisan.php?LV=DL&S_HILO=on&S_HOUR=on&ds=${d}&ms=${mo}&ys=${y}&de=${d}&me=${mo}&ye=${y}&stn=${encodeURIComponent(st.code)}`;
+    const html=await fetchText(url,15000);
+    const $t=cheerio.load(html); const target=`${y}/${mo}/${d}`;
+    let hilo=null,hourly=null;
+    $t('tr').each((_,tr)=>{
+      const cells=$t(tr).find('th,td').map((__,c)=>clean($t(c).text())).get();
+      if(!cells.length||!String(cells[0]).includes(target)) return;
+      const times=cells.filter(x=>/^\d{1,2}:\d{2}$/.test(x));
+      const nums=cells.filter(x=>/^-?\d+$/.test(x)).map(Number);
+      // HILO table has time/value pairs; hourly table has 24 numeric values and no HH:MM cells.
+      if(times.length>=2 && !hilo){
+        const pairs=[];
+        for(let i=1;i<cells.length-1;i++) if(/^\d{1,2}:\d{2}$/.test(cells[i]) && /^-?\d+$/.test(cells[i+1])) pairs.push({time:cells[i],level:Number(cells[i+1])});
+        if(pairs.length>=2) hilo=pairs;
+      }
+      if(times.length===0 && nums.length>=24 && !hourly) hourly=nums.slice(-24);
+    });
+    parsed={hilo, hourly, url}; step6TideCache.set(key,parsed);
+  }
+  if(!parsed.hilo||parsed.hilo.length<2) return {station:st.name,status:'気象庁解析失敗'};
+  const raceMin=hmToMin(deadline); if(raceMin==null) return {station:st.name,status:'レース時刻取得失敗'};
+  const events=parsed.hilo.map(x=>({...x,min:hmToMin(x.time)})).filter(x=>x.min!=null).sort((a,b)=>a.min-b.min);
+  // In the JMA HILO table the first half is high tides and the second half is low tides.
+  const half=Math.ceil(events.length/2); events.forEach((e,i)=>e.type=i<half?'満潮':'干潮'); events.sort((a,b)=>a.min-b.min);
+  let prev=null,next=null; for(const e of events){if(e.min<=raceMin)prev=e; if(e.min>raceMin&&!next)next=e;}
+  let state=''; if(prev&&next){state=prev.type==='干潮'&&next.type==='満潮'?'上げ潮':prev.type==='満潮'&&next.type==='干潮'?'下げ潮':'';}
+  const nearest=events.slice().sort((a,b)=>Math.abs(a.min-raceMin)-Math.abs(b.min-raceMin))[0];
+  if(nearest&&Math.abs(nearest.min-raceMin)<=30) state=nearest.type+'付近';
+  const highs=events.filter(x=>x.type==='満潮'), lows=events.filter(x=>x.type==='干潮');
+  const high=highs.slice().sort((a,b)=>Math.abs(a.min-raceMin)-Math.abs(b.min-raceMin))[0]||null;
+  const low=lows.slice().sort((a,b)=>Math.abs(a.min-raceMin)-Math.abs(b.min-raceMin))[0]||null;
+  const hour=Math.max(0,Math.min(23,Math.round(raceMin/60))); const level=parsed.hourly&&parsed.hourly.length===24?parsed.hourly[hour]:null;
+  return {station:st.name,status:'OK',highTime:high?.time||'',highLevel:high?.level??'',lowTime:low?.time||'',lowLevel:low?.level??'',state,level:level??'',deadline,source:parsed.url};
+}
+
 app.get('/api/turbo-status', (req,res) => {
   res.json({
     ok:true,

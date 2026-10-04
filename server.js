@@ -49,7 +49,7 @@ const clean = s => (s ?? '')
 // ========================================
 const officialHtmlCache = new Map();
 const officialInflight = new Map();
-const CACHE_MAX = 6000; // v0.5: month-scale STEP① cache; avoids re-fetching the same racer course page
+const CACHE_MAX = 6000; // v2.4: retained for official page cache; historical STEP① no longer requests racer course pages
 
 function shouldCacheOfficial(url) {
   return url.includes('/pc/data/racersearch/course?') ||
@@ -980,7 +980,7 @@ app.get('/api/race', async (req, res) => {
 // DATA SYSTEM v2
 // Heavy sub-fetches can be switched off in research export mode.
 // Defaults stay ON so the existing prediction API remains backward compatible.
-const includeCourseStats = String(req.query.includeCourseStats ?? '1') !== '0';
+const includeCourseStats = String(req.query.includeCourseStats ?? '0') !== '0'; // v2.4 temporal-safety default
 const includePreInspection = String(req.query.includePreInspection ?? '1') !== '0';
 
 // STEP2-1: six racers' course stats (heavy: six additional source reads)

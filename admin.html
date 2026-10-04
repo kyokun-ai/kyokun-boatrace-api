@@ -12,7 +12,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 @media(max-width:600px){.checks,.preset{grid-template-columns:repeat(2,1fr)}}
 </style></head><body><div class="wrap">
 <a class="homeLink" href="index.html">← メインに戻る</a>
-<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">DATA SYSTEM v2.3｜STEP分離＋結果Y完全分離＋返還/備考修正版</div>
+<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">DATA SYSTEM v2.4｜時間整合性監査済＋①高速化</div>
 <div class="panel">
 <div class="grid"><div><label>日付</label><input id="date" type="date"></div><div><label>場</label><select id="jcd"></select></div><div><label>R（通常予想のみ）</label><select id="rno"></select></div></div>
 <button id="predict">キョウ君に予想してもらう</button>
@@ -23,7 +23,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <div class="note">※ 一括テストではR選択欄は使用しません。開催場を自動取得し、最大12Rを同時処理します（失敗時は自動再試行）。進捗に経過時間・平均秒/R・R/分を表示します。</div>
 <div class="datamode">
 <h3>📦 研究データ取得 v2</h3>
-<div class="note">必要なSTEPだけ取得します。予想計算は走らせません。①〜⑤・正解Y・払戻を分離保存し、選択外の重い通信は省略します。</div>
+<div class="note">必要なSTEPだけ取得します。予想計算は走らせません。過去検証①では日付指定できない選手コース別ページを取得せず、過去出走表の当時値だけを保存します。</div>
 <div class="checks">
 <label class="check"><input id="d1" type="checkbox" checked>① 全国共通</label>
 <label class="check"><input id="d2" type="checkbox" checked>② 場別</label>
@@ -166,7 +166,7 @@ async function getResearchPack(date,jcd,rno,sel){
  const needsBefore=sel.d4||sel.d5;
  const jobs={};
  if(needsRace){
-   const q=`/api/race?date=${date}&jcd=${jcd}&rno=${rno}&includeCourseStats=${sel.d1?1:0}&includePreInspection=0`;
+   const q=`/api/race?date=${date}&jcd=${jcd}&rno=${rno}&includeCourseStats=0&includePreInspection=0`;
    jobs.race=fetchJson(q);
  }
  if(needsBefore)jobs.before=fetchJson(`/api/beforeinfo?date=${date}&jcd=${jcd}&rno=${rno}`);
@@ -320,7 +320,7 @@ $('dataPeriod').onclick=async()=>{
   const jobs=[];for(const t of targets)for(let r=1;r<=12;r++)jobs.push({t,r});
   // v0.5 STEP① fast path: month-scale ①/② export can safely use more workers.
   // Prediction logic is unchanged; this only changes transport/cache behavior.
-  const researchConcurrency=lightOnly?24:FAST_CONCURRENCY;
+  const researchConcurrency=lightOnly?24:FAST_CONCURRENCY; // v2.4: ①/② are racelist-only; no per-racer course fetch
   let next=0,done=0;const packs=[];const started=performance.now();
   async function getResearchPackRetry(date,jcd,rno,sel){
     let lastErr;

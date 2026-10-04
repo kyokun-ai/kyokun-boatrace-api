@@ -1799,6 +1799,23 @@ const STEP6_TIDE_STATIONS={
   '20':{code:'MO',name:'門司'}      // 若松
 };
 const step6TideCache=new Map();
+async function fetchText(url, timeoutMs=15000){
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'user-agent': 'Mozilla/5.0 KyokunResearch/1.3',
+        'accept-language': 'ja,en;q=0.8'
+      }
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
 function hmToMin(v){const m=String(v||'').match(/^(\d{1,2}):(\d{2})$/);return m?Number(m[1])*60+Number(m[2]):null;}
 async function fetchStep6Tide(date,jcd,rno,deadline){
   const st=STEP6_TIDE_STATIONS[String(jcd).padStart(2,'0')];

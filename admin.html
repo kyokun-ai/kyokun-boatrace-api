@@ -30,6 +30,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <label class="check"><input id="d3" type="checkbox">③ 節</label>
 <label class="check"><input id="d4" type="checkbox">④ 当日</label>
 <label class="check"><input id="d5" type="checkbox">⑤ 直前</label>
+<label class="check"><input id="d6" type="checkbox">⑥ 風向・潮汐</label>
 <label class="check"><input id="dy" type="checkbox" checked>結果・正解Y</label>
 </div>
 <div class="preset">
@@ -147,12 +148,12 @@ const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_t
 // ============================================================
 // DATA SYSTEM v2 — STEP-selective research export
 // ============================================================
-const dataIds=['d1','d2','d3','d4','d5','dy'];
+const dataIds=['d1','d2','d3','d4','d5','d6','dy'];
 function selectedDataSteps(){return Object.fromEntries(dataIds.map(id=>[id,$(id).checked]))}
 function updateDataPlan(){
  const s=selectedDataSteps(), names=[];
  if(s.d1)names.push('①全国共通'); if(s.d2)names.push('②場別'); if(s.d3)names.push('③節');
- if(s.d4)names.push('④当日'); if(s.d5)names.push('⑤直前'); if(s.dy)names.push('結果');
+ if(s.d4)names.push('④当日'); if(s.d5)names.push('⑤直前'); if(s.d6)names.push('⑥風向・潮汐'); if(s.dy)names.push('結果');
  $('dataPlan').textContent='現在：'+(names.join('＋')||'未選択');
 }
 dataIds.forEach(id=>$(id).addEventListener('change',updateDataPlan));
@@ -169,7 +170,7 @@ async function getResearchPack(date,jcd,rno,sel){
    jobs.race=fetchJson(q);
  }
  if(needsBefore)jobs.before=fetchJson(`/api/beforeinfo?date=${date}&jcd=${jcd}&rno=${rno}`);
- if(sel.dy)jobs.result=fetchJson(`/api/result?date=${date}&jcd=${jcd}&rno=${rno}`);
+ if(sel.dy||sel.d6)jobs.result=fetchJson(`/api/result?date=${date}&jcd=${jcd}&rno=${rno}`);
  const keys=Object.keys(jobs), vals=await Promise.all(Object.values(jobs));
  const out=Object.fromEntries(keys.map((k,i)=>[k,vals[i]]));
  for(const [k,v] of Object.entries(out)){
@@ -178,7 +179,7 @@ async function getResearchPack(date,jcd,rno,sel){
  return {date,jcd,rno,...out};
 }
 function researchRows(packs,sel){
- const step1=[],step2=[],step3=[],step4=[],step4weather=[],step5=[],answers=[],ev=[];
+ const step1=[],step2=[],step3=[],step4=[],step4weather=[],step5=[],step6=[],answers=[],ev=[];
  for(const x of packs){
   if(x.error){
     const err=String(x.error||'取得失敗');
@@ -196,6 +197,7 @@ function researchRows(packs,sel){
       if(sel.d3)step3.push({...boat});
       if(sel.d4)step4.push({...boat});
       if(sel.d5)step5.push({...boat});
+      if(sel.d6&&lane===1)step6.push({...common,風向:'',風速:'',波高:'',潮汐地点:'',満潮時刻:'',満潮潮位:'',干潮時刻:'',干潮潮位:'',潮状態:'',潮位:'',潮汐取得状態:'未取得'});
       if(sel.dy)answers.push({...boat});
     }
     if(sel.d4)step4weather.push({...common});
@@ -291,6 +293,10 @@ function researchRows(packs,sel){
     }
   }
 
+  if(sel.d6){
+    const w=result.weather||{};
+    step6.push({日付:x.date,場コード:x.jcd,場:venues[x.jcd]||'',R:x.rno,取得状態:'OK',取得エラー:'',風向:w.windDirection??'',風速:w.windSpeed??'',波高:w.waveHeight??'',潮汐地点:'',満潮時刻:'',満潮潮位:'',干潮時刻:'',干潮潮位:'',潮状態:'',潮位:'',潮汐取得状態:'気象庁連携準備中'});
+  }
   if(sel.dy){
     const lanes=new Set([...Object.keys(resultStart),...Object.keys(resultFinish)].map(Number));
     for(const lane of [...lanes].sort((a,b)=>a-b)){
@@ -313,13 +319,13 @@ function researchRows(packs,sel){
     });
   }
  }
- return {step1,step2,step3,step4,step4weather,step5,answers,ev};
+ return {step1,step2,step3,step4,step4weather,step5,step6,answers,ev};
 }
 function exportResearchExcel(packs,sel){
  const rows=researchRows(packs,sel), wb=XLSX.utils.book_new();
  const add=(arr,name)=>{if(arr.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(arr),name)};
  add(rows.step1,'①全国共通_RAW'); add(rows.step2,'②場別_RAW'); add(rows.step3,'③節_RAW');
- add(rows.step4,'④当日_選手RAW'); add(rows.step4weather,'④当日_気象RAW'); add(rows.step5,'⑤直前_RAW'); add(rows.answers,'正解Y_結果'); add(rows.ev,'期待値検証_払戻');
+ add(rows.step4,'④当日_選手RAW'); add(rows.step4weather,'④当日_気象RAW'); add(rows.step5,'⑤直前_RAW'); add(rows.step6,'⑥風向潮汐_RAW'); add(rows.answers,'正解Y_結果'); add(rows.ev,'期待値検証_払戻');
  const ds=[...new Set(packs.map(x=>x.date))].sort();
  XLSX.writeFile(wb,`kyokun_v2_data_${ds[0]||'data'}${ds.length>1?'-'+ds.at(-1):''}.xlsx`);
 }
@@ -328,7 +334,7 @@ $('dataPeriod').onclick=async()=>{
  if(!Object.values(sel).some(Boolean))return alert('取得するSTEPを1つ以上選んでください');
  setBusy(true);
  try{
-  const selectedCount=[sel.d1,sel.d2,sel.d3,sel.d4,sel.d5,sel.dy].filter(Boolean).length;
+  const selectedCount=[sel.d1,sel.d2,sel.d3,sel.d4,sel.d5,sel.d6,sel.dy].filter(Boolean).length;
   const longRange=selectedCount===1; // v2.7: any single STEP/Y can run up to 31 days; combinations stay at 7 days
   const maxDays=longRange?31:7;
   const ds=datesBetween($('from').value,$('to').value,maxDays),targets=[];

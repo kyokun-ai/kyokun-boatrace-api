@@ -1737,11 +1737,22 @@ app.get('/api/result', async (req,res)=>{
     });
     const stableBoard=body.includes('安定板使用');
 
+    // DATA SYSTEM v3.1 STEP⑥: settled-race water/weather metadata.
+    // Direction may be rendered as text or image metadata depending on the official page version.
+    const imageMeta=$('img').map((_,img)=>[ $(img).attr('alt'),$(img).attr('title'),$(img).attr('class'),$(img).attr('src') ].filter(Boolean).join(' ')).get().join(' ');
+    const directionSource=`${body} ${imageMeta}`;
+    const directionWords=['無風','北','北北東','北東','東北東','東','東南東','南東','南南東','南','南南西','南西','西南西','西','西北西','北西','北北西','追い風','向い風','向かい風','左横風','右横風'];
+    let windDirection=null;
+    for(const word of directionWords){ if(directionSource.includes(word)){windDirection=word;break;} }
+    const windSpeedMatch=body.match(/風速\s*(\d+(?:\.\d+)?)\s*m/);
+    const waveHeightMatch=body.match(/波高\s*(\d+(?:\.\d+)?)\s*cm/);
+    const resultWeather={windDirection,windSpeed:windSpeedMatch?Number(windSpeedMatch[1]):null,waveHeight:waveHeightMatch?Number(waveHeightMatch[1]):null};
+
     res.json({
       ok:true,version:'data-system-v2.3',source,date,jcd,rno,
       trifecta,payout,popularity,winningMethod:method,
       finish,startInfo,entryOrder:startInfo.map(x=>x.lane),
-      payouts,refundText,remarksText,stableBoard
+      payouts,refundText,remarksText,stableBoard,weather:resultWeather
     });
   } catch(error){
     console.error('result error:',error);

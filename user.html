@@ -1,29 +1,8 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>予想</title>
-<style>*{box-sizing:border-box}body{font-family:-apple-system,sans-serif;background:#07111f;color:#eef5ff;margin:0}.w{max-width:950px;margin:auto;padding:18px}a{color:#8dc8ff}
-table{width:100%;border-collapse:collapse;background:#102034;border-radius:12px;overflow:hidden}th,td{padding:8px;border-bottom:1px solid #24384f;text-align:center}input{width:88px;padding:8px;border-radius:8px;border:1px solid #38516e;background:#091524;color:white}
-button{width:100%;padding:14px;margin:15px 0;border:0;border-radius:12px;font-weight:700;font-size:16px}.note{color:#9fb2c9}.result{background:#102034;padding:15px;border-radius:14px;margin-top:14px}.rank{font-size:20px;font-weight:700}</style></head>
-<body><main class="w"><p><a href="index.html">←入口</a></p><h1>🚤 ①② 基礎予想</h1>
-<p class="note">全国勝率と「今回のコース」の全国3連対率を入力。②は現在補正なしなので①評価をそのまま通過します。</p>
-<div style="overflow:auto"><table><thead><tr><th>艇</th><th>選手</th><th>全国勝率</th><th>現コース3連対率%</th></tr></thead><tbody id="rows"></tbody></table></div>
-<button onclick="calc()">①②評価を実行</button><div id="out"></div>
-<script>
-const boatAdj=[0,0,-1.7,-1.9,-2.0,-2.6,-3.0];
-const C={wrMean:5.29233035,wrSd:1.32939332,diffMean:0.00237223,diffSd:1.07958259,c3DiffSd:22.87066632};
-let html="";for(let i=1;i<=6;i++)html+=`<tr><td>${i}</td><td><input id="n${i}" placeholder="選手${i}"></td><td><input id="w${i}" type="number" step=".01"></td><td><input id="c${i}" type="number" step=".1"></td></tr>`;document.getElementById("rows").innerHTML=html;
-function num(id){let v=parseFloat(document.getElementById(id).value);return Number.isFinite(v)?v:null}
-function calc(){
- const ws=[1,2,3,4,5,6].map(i=>num("w"+i)), cs=[1,2,3,4,5,6].map(i=>num("c"+i));
- const validW=ws.filter(v=>v!==null),validC=cs.filter(v=>v!==null);
- const mw=validW.length?validW.reduce((a,b)=>a+b,0)/validW.length:null, mc=validC.length?validC.reduce((a,b)=>a+b,0)/validC.length:null;
- let r=[];
- for(let j=0;j<6;j++){let i=j+1,w=ws[j],c=cs[j];
-   let zAbs=w===null?0:(w-C.wrMean)/C.wrSd;
-   let zWD=(w===null||mw===null)?0:((w-mw)-C.diffMean)/C.diffSd;
-   let zC=(c===null||mc===null)?0:(c-mc)/C.c3DiffSd;
-   let s=boatAdj[i]+.16*zAbs+.68*zWD+.25*zC;
-   r.push({boat:i,name:document.getElementById("n"+i).value||("選手"+i),score:s,zAbs,zWD,zC});
- }
- r.sort((a,b)=>b.score-a.score);
- document.getElementById("out").innerHTML='<div class="result"><div class="rank">①②順位：'+r.map(x=>x.boat).join(" → ")+'</div><p class="note">②補正値は全艇 0（現在の正式仕様）</p>'+r.map((x,k)=>`<p>${k+1}位　${x.boat}号艇 ${x.name}　②通過スコア <b>${x.score.toFixed(4)}</b><br><small>全国勝率Z ${x.zAbs.toFixed(3)} / 全国勝率6艇差Z ${x.zWD.toFixed(3)} / 現コース3連対率6艇差Z ${x.zC.toFixed(3)}</small></p>`).join("")+'</div>';
-}
-</script></main></body></html>
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>①②基礎予想</title><style>*{box-sizing:border-box}body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-system,sans-serif}.w{max-width:900px;margin:auto;padding:18px}a{color:#8dc8ff}.panel,.result{background:#102034;border:1px solid #29435f;border-radius:16px;padding:16px;margin:14px 0}.grid{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:10px}label{font-size:13px;color:#a9bed3}input,select,button{width:100%;padding:12px;border-radius:10px;border:1px solid #36506c;font-size:16px}input,select{background:#091624;color:#fff}button{background:#1687ff;color:#fff;font-weight:800;margin-top:14px}.status{color:#b9cbe0;margin-top:12px;white-space:pre-line}.row{display:grid;grid-template-columns:50px 1.4fr .8fr .9fr .9fr;gap:8px;padding:10px 0;border-bottom:1px solid #29435f;align-items:center}.head{color:#9db2c9;font-size:13px}.rank{font-size:20px;font-weight:900}.muted{color:#9db2c9;font-size:12px}@media(max-width:650px){.grid{grid-template-columns:1fr 1fr}.grid>div:first-child{grid-column:1/-1}.row{grid-template-columns:42px 1.2fr .8fr}.hideMob{display:none}}</style></head><body><main class="w"><p><a href="index.html">←入口</a></p><h1>🚤 ①② 基礎予想</h1><p class="muted">手入力不要。公式データから全国勝率と今回コースの全国3連対率を自動取得します。</p><section class="panel"><div class="grid"><div><label>日付</label><input id="date" type="date"></div><div><label>開催場</label><select id="jcd"><option value="">開催場を取得</option></select></div><div><label>R</label><select id="rno"></select></div></div><button id="predict">①②で予想する</button><div class="status" id="status">日付を選ぶと開催場を自動取得します。</div></section><section class="result" id="result" hidden><h2 id="title">評価結果</h2><div class="row head"><div>順位</div><div>艇・選手</div><div>②スコア</div><div class="hideMob">全国勝率</div><div class="hideMob">現C3連率</div></div><div id="rows"></div><p class="muted">②は現在の正式仕様どおり補正0。③④⑤はまだ評価に使用していません。</p></section></main><script>
+const $=id=>document.getElementById(id);const venueNames={'01':'桐生','02':'戸田','03':'江戸川','04':'平和島','05':'多摩川','06':'浜名湖','07':'蒲郡','08':'常滑','09':'津','10':'三国','11':'びわこ','12':'住之江','13':'尼崎','14':'鳴門','15':'丸亀','16':'児島','17':'宮島','18':'徳山','19':'下関','20':'若松','21':'芦屋','22':'福岡','23':'唐津','24':'大村'};
+for(let i=1;i<=12;i++){let o=document.createElement('option');o.value=i;o.textContent=i+'R';$('rno').appendChild(o)}$('date').value=new Date().toLocaleDateString('sv-SE');
+const ymd=v=>String(v||'').replaceAll('-','');
+async function loadVenues(){let d=ymd($('date').value);if(!d)return;$('status').textContent='開催場を取得中…';try{let r=await fetch('/api/venues?date='+d),j=await r.json();if(!j.ok)throw Error(j.error||'開催場取得失敗');$('jcd').innerHTML='';for(const v of j.venues){let o=document.createElement('option');o.value=v.jcd;o.textContent=v.jcd+' '+v.name;$('jcd').appendChild(o)}$('status').textContent=j.venues.length?`${j.venues.length}場を取得。Rを選んで予想できます。`:'この日は開催場がありません。'}catch(e){$('status').textContent='エラー：'+e.message}}
+$('date').addEventListener('change',loadVenues);loadVenues();
+$('predict').addEventListener('click',async()=>{let date=ymd($('date').value),jcd=$('jcd').value,rno=$('rno').value;if(!jcd)return $('status').textContent='開催場を選択してください。';$('predict').disabled=true;$('result').hidden=true;$('status').textContent='公式データ取得中…\n①全国共通 → ②場別（補正なし）を計算中';try{let rr=await fetch(`/api/race?date=${date}&jcd=${jcd}&rno=${rno}&includeCourseStats=1&includePreInspection=0`),race=await rr.json();if(!race.ok)throw Error(race.error||'出走データ取得失敗');let pr=await fetch('/api/v2-base-predict',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({race})}),p=await pr.json();if(!p.ok)throw Error(p.error||'計算失敗');$('title').textContent=`${race.venue} ${rno}R｜①②基礎評価`;$('rows').innerHTML=p.ranking.map((x,i)=>`<div class="row"><div class="rank">${i+1}</div><div><b>${x.lane}号艇 ${x.name}</b><div class="muted">${x.rank} / ① ${x.step1Score.toFixed(4)} / ②補正 0</div></div><div><b>${x.step2Score.toFixed(4)}</b></div><div class="hideMob">${x.nationalWinRate??'-'}</div><div class="hideMob">${x.currentCourseTrioRate??'-'}%</div></div>`).join('');$('result').hidden=false;$('status').textContent='①②基礎予想 完了🔥';}catch(e){$('status').textContent='エラー：'+e.message}finally{$('predict').disabled=false}});
+</script></body></html>

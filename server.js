@@ -1587,6 +1587,37 @@ app.post('/api/predict', (req, res) => {
 
 
 // ============================================================
+// v2正式基盤：①全国共通 → ②場別（補正なし）
+// 既存研究用 /api/predict とは完全分離。
+// ============================================================
+app.post('/api/v2-base-predict', (req, res) => {
+  try {
+    const race = req.body?.race;
+    if (!race?.ok || !Array.isArray(race.racers) || race.racers.length !== 6) {
+      return res.status(400).json({ok:false,error:'valid six-racer race data is required'});
+    }
+    const C={wrMean:5.29233035,wrSd:1.32939332,diffMean:0.00237223,diffSd:1.07958259,c3DiffSd:22.87066632};
+    const boatAdj={1:0,2:-1.7,3:-1.9,4:-2.0,5:-2.6,6:-3.0};
+    const finite=v=>Number.isFinite(Number(v))?Number(v):null;
+    const wr=race.racers.map(r=>finite(r.national?.winRate));
+    const c3=race.racers.map(r=>finite(r.courseStats?.[String(r.lane)]?.trioRate));
+    const mean=a=>{const v=a.filter(x=>x!==null);return v.length?v.reduce((x,y)=>x+y,0)/v.length:null};
+    const mw=mean(wr), mc=mean(c3);
+    const scored=race.racers.map((r,i)=>{
+      const w=wr[i], c=c3[i];
+      const zAbs=w===null?0:(w-C.wrMean)/C.wrSd;
+      const zWD=(w===null||mw===null)?0:((w-mw)-C.diffMean)/C.diffSd;
+      const zC=(c===null||mc===null)?0:(c-mc)/C.c3DiffSd;
+      const step1=(boatAdj[r.lane]??0)+0.16*zAbs+0.68*zWD+0.25*zC;
+      return {lane:r.lane,registration:r.registration,name:r.name,rank:r.rank,nationalWinRate:w,currentCourseTrioRate:c,components:{boatAdjustment:boatAdj[r.lane]??0,nationalWinZ:zAbs,nationalWinRaceDiffZ:zWD,currentCourseTrioRaceDiffZ:zC},step1Score:step1,step2Correction:0,step2Score:step1};
+    }).sort((a,b)=>b.step2Score-a.step2Score);
+    res.json({ok:true,logicVersion:'v2-base-①frozen-②no-correction',date:race.date,jcd:race.jcd,rno:race.rno,venue:race.venue,step1:'confirmed_frozen',step2:'confirmed_no_correction',ranking:scored});
+  } catch(error) {
+    res.status(500).json({ok:false,error:error.message});
+  }
+});
+
+// ============================================================
 // STEP3-C 開催場一覧API（日付 → その日に開催している場）
 // ============================================================
 app.get('/api/venues', async (req,res)=>{

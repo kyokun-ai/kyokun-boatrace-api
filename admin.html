@@ -1,12 +1,341 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理</title>
-<style>body{font-family:-apple-system,sans-serif;background:#07111f;color:#eef5ff;margin:0}.w{max-width:800px;margin:auto;padding:20px}a{color:#8dc8ff}.c{background:#102034;border:1px solid #263e5a;border-radius:15px;padding:17px;margin:12px 0}.ok{color:#83efa8}.wait{color:#ffd36b}code{white-space:pre-wrap;color:#cce4ff}</style></head><body><main class="w">
-<p><a href="index.html">←入口</a></p><h1>⚙️ 管理画面</h1>
-<div class="c"><h2>STEP状態</h2><p class="ok">① 全国共通：確定・凍結</p><p class="ok">② 場別：確定・補正なし</p><p class="wait">③ 節限定：研究中</p><p>④ 当日限定：未着手</p><p>⑤ 直前限定：未着手</p></div>
-<div class="c"><h2>① 正式式</h2><code>艇番補正
-+ 0.16 × 全国勝率Z
-+ 0.68 × 全国勝率6艇平均との差Z
-+ 0.25 × 現コース3連対率6艇平均との差Z</code></div>
-<div class="c"><h2>艇番補正</h2><p>1: 0 / 2: -1.7 / 3: -1.9 / 4: -2.0 / 5: -2.6 / 6: -3.0</p></div>
-<div class="c"><h2>固定標準化定数</h2><p>全国勝率 mean 5.29233035 / SD 1.32939332<br>全国勝率平均との差 mean 0.00237223 / SD 1.07958259<br>現コース3連対率平均との差 SD 22.87066632</p></div>
-<div class="c"><h2>② 場別</h2><p>現在の正式仕様：①スコアを無補正で③へ通過。場別候補はRAW保持。</p></div>
-</main></body></html>
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>キョウ君 BOATRACE AI</title><script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-system,sans-serif}.wrap{max-width:980px;margin:auto;padding:18px}h1{font-size:24px;margin:4px 0}.sub{color:#9db2c9;margin-bottom:18px}.panel,.result{background:#101d2d;border:1px solid #263b53;border-radius:16px;padding:14px;margin:12px 0}.grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px}.period{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}label{font-size:12px;color:#a9bed3}input,select,button{width:100%;box-sizing:border-box;border-radius:10px;border:1px solid #36506c;padding:11px;font-size:16px}input,select{background:#0b1725;color:white}button{background:#1687ff;color:white;font-weight:800;margin-top:10px;cursor:pointer}button.secondary{background:#263b53}button.bulk{background:#7b4dff}button.periodbtn{background:#b45b18}button:disabled{opacity:.5}.status{margin-top:12px;color:#b8cbe0;line-height:1.6}.progress{height:10px;background:#071421;border-radius:10px;overflow:hidden;margin-top:10px}.bar{height:100%;background:#1687ff;width:0%;transition:width .2s}.betbox{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}.bet{background:#071421;border-radius:10px;padding:10px;text-align:center;font-size:19px;font-weight:900}.main{border-left:4px solid #45d483}.reserve{border-left:4px solid #45a9ff}.caution{border-left:4px solid #ffb340}.star{border-left:4px solid #d47cff}.meta{font-size:14px;color:#b9cbe0;line-height:1.7}.hidden{display:none}.warn{font-size:13px;color:#ffcf70;margin-top:10px}.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.kpi{background:#071421;border-radius:10px;padding:10px;text-align:center}.kpi b{display:block;font-size:20px}.tablewrap{overflow:auto;margin-top:12px;max-height:520px}table{width:100%;border-collapse:collapse;min-width:900px;font-size:13px}th,td{padding:8px;border-bottom:1px solid #263b53;text-align:center}th{color:#9db2c9;position:sticky;top:0;background:#101d2d}.hit-main{color:#45d483;font-weight:900}.hit-sub{color:#ffcf70;font-weight:800}.miss{color:#ff7b7b}.note{font-size:12px;color:#9db2c9;margin-top:5px}@media(max-width:600px){.wrap{padding:10px}.grid{grid-template-columns:1fr 1fr}.grid>div:first-child{grid-column:1/-1}.period{grid-template-columns:1fr 1fr}.betbox{grid-template-columns:repeat(3,1fr)}.bet{font-size:16px;padding:9px 4px}.kpis{grid-template-columns:repeat(2,1fr)}h1{font-size:21px}}
+
+.datamode{border:1px solid #36506c;border-radius:14px;padding:12px;margin-top:14px;background:#0b1725}
+.checks{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
+.check{display:flex;gap:8px;align-items:center;background:#101d2d;padding:10px;border-radius:10px}
+.check input{width:auto}.preset{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+@media(max-width:600px){.checks,.preset{grid-template-columns:repeat(2,1fr)}}
+</style></head><body><div class="wrap">
+<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">DATA SYSTEM v2.3｜STEP分離＋結果Y完全分離＋返還/備考修正版</div>
+<div class="panel">
+<div class="grid"><div><label>日付</label><input id="date" type="date"></div><div><label>場</label><select id="jcd"></select></div><div><label>R（通常予想のみ）</label><select id="rno"></select></div></div>
+<button id="predict">キョウ君に予想してもらう</button>
+<button id="backtest" class="secondary">🧪 この日・この場 12R</button>
+<button id="dayall" class="bulk">🔥 この日の開催場を全部バックテスト</button>
+<div class="period"><div><label>期間開始</label><input id="from" type="date"></div><div><label>期間終了（最大7日）</label><input id="to" type="date"></div></div>
+<button id="periodall" class="periodbtn">📅 期間内の全開催場を一括バックテスト</button>
+<div class="note">※ 一括テストではR選択欄は使用しません。開催場を自動取得し、最大12Rを同時処理します（失敗時は自動再試行）。進捗に経過時間・平均秒/R・R/分を表示します。</div>
+<div class="datamode">
+<h3>📦 研究データ取得 v2</h3>
+<div class="note">必要なSTEPだけ取得します。予想計算は走らせません。①〜⑤・正解Y・払戻を分離保存し、選択外の重い通信は省略します。</div>
+<div class="checks">
+<label class="check"><input id="d1" type="checkbox" checked>① 全国共通</label>
+<label class="check"><input id="d2" type="checkbox" checked>② 場別</label>
+<label class="check"><input id="d3" type="checkbox">③ 節</label>
+<label class="check"><input id="d4" type="checkbox">④ 当日</label>
+<label class="check"><input id="d5" type="checkbox">⑤ 直前</label>
+<label class="check"><input id="dy" type="checkbox" checked>結果・正解Y</label>
+</div>
+<div class="preset">
+<button id="preset12" class="secondary">①＋②＋結果</button>
+<button id="presetResult" class="secondary">結果だけ</button>
+<button id="presetAll" class="secondary">全部選択</button>
+</div>
+<button id="dataPeriod" class="periodbtn">⚡ 選択STEPだけ期間一括取得 → Excel</button>
+<div class="note" id="dataPlan">現在：①＋②＋結果</div>
+</div>
+<div class="status" id="status">オッズは予想に使用しません。</div><div class="progress hidden" id="progress"><div class="bar" id="bar"></div></div></div>
+<div id="result" class="result hidden"><h2>🎯 キョウ君予想</h2><div class="meta" id="meta"></div><h3>○ 本命3点</h3><div class="betbox" id="main"></div><h3>△ 抑え3点</h3><div class="betbox" id="reserve"></div><h3>× 注意3点</h3><div class="betbox" id="caution"></div><h3>☆ 穴目3点</h3><div class="betbox" id="star"></div><div class="warn">※ 本評価は○本命3点のみ。△×☆は研究用です。</div></div>
+<div id="bt" class="result hidden"><h2>🧪 バックテスト結果</h2><div class="kpis" id="kpis"></div><button id="excel" class="secondary">📥 全結果をExcelに出力</button><div class="tablewrap"><table><thead><tr><th>日付</th><th>場</th><th>R</th><th>○本命3点</th><th>結果</th><th>判定</th><th>払戻</th></tr></thead><tbody id="btrows"></tbody></table></div></div>
+</div><script>
+const $=id=>document.getElementById(id),sleep=ms=>new Promise(r=>setTimeout(r,ms));const today=new Date();$('date').value=today.toLocaleDateString('sv-SE');$('from').value=$('date').value;$('to').value=$('date').value;
+const venues={'01':'桐生','02':'戸田','03':'江戸川','04':'平和島','05':'多摩川','06':'浜名湖','07':'蒲郡','08':'常滑','09':'津','10':'三国','11':'びわこ','12':'住之江','13':'尼崎','14':'鳴門','15':'丸亀','16':'児島','17':'宮島','18':'徳山','19':'下関','20':'若松','21':'芦屋','22':'福岡','23':'唐津','24':'大村'};
+for(const [c,n] of Object.entries(venues)){const o=document.createElement('option');o.value=c;o.textContent=`${c} ${n}`;$('jcd').appendChild(o)}for(let i=1;i<=12;i++){const o=document.createElement('option');o.value=i;o.textContent=i+'R';$('rno').appendChild(o)}
+let lastBacktest=[];const buttons=['backtest','dayall','periodall'];
+function ymd(v){return String(v||'').replaceAll('-','')}function isoFromYmd(s){return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`}
+async function getPrediction(date,jcd,rno){const [rr,br]=await Promise.all([fetch(`/api/race?date=${date}&jcd=${jcd}&rno=${rno}`),fetch(`/api/beforeinfo?date=${date}&jcd=${jcd}&rno=${rno}`)]);const race=await rr.json(),before=await br.json();if(!race.ok)throw new Error(race.error||race.status||'出走データ取得失敗');if(!before.ok)throw new Error(before.message||before.error||'直前情報取得失敗');const pr=await fetch('/api/predict',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({race,before})});const p=await pr.json();if(!p.ok)throw new Error(p.error||'予想失敗');return {race,before,p}}
+async function getHeldVenues(date){const r=await fetch(`/api/venues?date=${date}`),j=await r.json();if(!j.ok)throw new Error(j.error||'開催場取得失敗');return j.venues||[]}
+function bets(id,arr,cls){$(id).innerHTML=(arr||[]).map(x=>`<div class="bet ${cls}">${x}</div>`).join('')}
+$('predict').onclick=async()=>{const date=ymd($('date').value),jcd=$('jcd').value,rno=$('rno').value;$('predict').disabled=true;$('status').textContent='公式データ取得 → 12点予想中…';$('result').classList.add('hidden');try{const {p}=await getPrediction(date,jcd,rno);$('meta').innerHTML=`場：<b>${jcd} ${venues[jcd]}</b><br>自信度：<b>${p.prediction.confidence}</b><br>想定進入：${(p.entryOrder||[]).join('-')||'不明'}<br>本命頭候補：${p.prediction.mainHead}号艇<br>オッズ使用：なし`;bets('main',p.prediction.main,'main');bets('reserve',p.prediction.reserve,'reserve');bets('caution',p.prediction.caution,'caution');bets('star',p.prediction.star,'star');$('result').classList.remove('hidden');$('status').textContent='12点予想完成🔥'}catch(e){$('status').textContent='エラー：'+e.message}finally{$('predict').disabled=false}};
+function judge(pred,result){const t=result.trifecta;if(pred.main.includes(t))return{code:'○',label:'○本命的中'};if(pred.reserve.includes(t))return{code:'△',label:'本命ハズレ・△捕捉'};if(pred.caution.includes(t))return{code:'×',label:'本命ハズレ・×捕捉'};if(pred.star.includes(t))return{code:'☆',label:'本命ハズレ・☆捕捉'};return{code:'外',label:'完全ハズレ'}}
+function setBusy(v){for(const id of buttons)$(id).disabled=v;$('progress').classList.toggle('hidden',!v);if(!v)$('bar').style.width='100%'}
+function render(){const valid=lastBacktest.filter(x=>!x.error),cnt=c=>valid.filter(x=>x.judge===c).length,rate=n=>valid.length?(n/valid.length*100).toFixed(1)+'%':'-';$('kpis').innerHTML=`<div class="kpi">○本命的中率<b>${rate(cnt('○'))}</b>${cnt('○')}/${valid.length}R</div><div class="kpi">△捕捉<b>${cnt('△')}</b>R</div><div class="kpi">×捕捉<b>${cnt('×')}</b>R</div><div class="kpi">☆捕捉<b>${cnt('☆')}</b>R</div><div class="kpi">エラー<b>${lastBacktest.length-valid.length}</b>R</div>`;$('btrows').innerHTML=lastBacktest.map(x=>x.error?`<tr><td>${x.date}</td><td>${x.venue||x.jcd}</td><td>${x.rno}R</td><td colspan="4" class="miss">${x.error}</td></tr>`:`<tr><td>${x.date}</td><td>${x.venue}</td><td>${x.rno}R</td><td>${x.main.join(' / ')}</td><td>${x.result}</td><td class="${x.judge==='○'?'hit-main':x.judge==='外'?'miss':'hit-sub'}">${x.judgeLabel}</td><td>${x.payout?x.payout.toLocaleString()+'円':'-'}</td></tr>`).join('');$('bt').classList.remove('hidden');return{valid,cnt,rate}}
+const FAST_CONCURRENCY=12,FAST_RETRY=2;
+async function fetchJson(url,opt){const r=await fetch(url,opt),j=await r.json();return j}
+async function runOneFast(t,r){
+ let lastErr;
+ for(let attempt=0;attempt<=FAST_RETRY;attempt++){
+  try{
+   const [predPack,result]=await Promise.all([
+    getPrediction(t.date,t.jcd,r),
+    fetchJson(`/api/result?date=${t.date}&jcd=${t.jcd}&rno=${r}`)
+   ]);
+   const p=predPack.p;
+   if(!result.ok)throw new Error(result.message||result.error||'結果なし');
+   const j=judge(p.prediction,result);
+   return {date:t.date,jcd:t.jcd,venue:venues[t.jcd],rno:r,logicVersion:p.version||'',confidence:p.prediction.confidence,entry:(p.entryOrder||[]).join('-'),main:p.prediction.main,reserve:p.prediction.reserve,caution:p.prediction.caution,star:p.prediction.star,result:result.trifecta,judge:j.code,judgeLabel:j.label,payout:result.payout,popularity:result.popularity,winningMethod:result.winningMethod,features:p.predictionFeatures,resultStartInfo:result.startInfo||[],resultEntryOrder:result.entryOrder||[],resultFinish:result.finish||[]};
+  }catch(e){
+   lastErr=e;
+   if(attempt<FAST_RETRY)await sleep(350*(attempt+1));
+  }
+ }
+ return {date:t.date,jcd:t.jcd,venue:venues[t.jcd],rno:r,error:lastErr?.message||'取得失敗'};
+}
+async function runTargets(targets,label){
+ lastBacktest=[];setBusy(true);$('bt').classList.add('hidden');
+ const jobs=[];for(const t of targets)for(let r=1;r<=12;r++)jobs.push({t,r});
+ let next=0,done=0,total=jobs.length;
+ const startedAt=performance.now();
+ function speedText(){
+   const sec=Math.max((performance.now()-startedAt)/1000,0.001);
+   const avg=done?sec/done:0, rpm=done?done/sec*60:0;
+   const m=Math.floor(sec/60), ss=Math.floor(sec%60);
+   return `⏱ ${m}分${String(ss).padStart(2,'0')}秒 ｜ 平均 ${avg.toFixed(2)}秒/R ｜ ${rpm.toFixed(1)}R/分`;
+ }
+ async function worker(){
+  while(true){
+   const i=next++;if(i>=total)return;
+   const {t,r}=jobs[i];
+   const row=await runOneFast(t,r);
+   lastBacktest.push(row);done++;
+   lastBacktest.sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.jcd).localeCompare(String(b.jcd))||Number(a.rno)-Number(b.rno));
+   $('bar').style.width=`${Math.round(done/total*100)}%`;
+   $('status').textContent=`${label}【高速v3.1 TURBO12 / 同時${FAST_CONCURRENCY}R】\n${t.date} ${t.jcd} ${venues[t.jcd]} ${r}R ｜ 全体 ${done}/${total}R\n${speedText()}`;
+   render();
+  }
+ }
+ try{
+  await Promise.all(Array.from({length:Math.min(FAST_CONCURRENCY,total)},()=>worker()));
+  const st=render();
+  $('status').textContent=`完了🔥 v3.1 TURBO12 ${targets.length}場 / ${lastBacktest.length}R ｜ ○本命 ${st.rate(st.cnt('○'))}\n${speedText()} ｜ 同時${FAST_CONCURRENCY}R`;
+ }finally{setBusy(false)}
+}
+$('backtest').onclick=()=>runTargets([{date:ymd($('date').value),jcd:$('jcd').value}],'1場バックテスト');
+$('dayall').onclick=async()=>{setBusy(true);try{const date=ymd($('date').value);$('status').textContent='この日の開催場を確認中…';const vs=await getHeldVenues(date);if(!vs.length)throw new Error('この日の開催場を取得できませんでした');setBusy(false);await runTargets(vs.map(v=>({date,jcd:v.jcd})),`1日全場バックテスト（${vs.length}場）`)}catch(e){setBusy(false);$('status').textContent='エラー：'+e.message}};
+function datesBetween(a,b){const A=new Date(a+'T00:00:00'),B=new Date(b+'T00:00:00');if(isNaN(A)||isNaN(B)||B<A)throw new Error('期間指定を確認してください');const days=Math.round((B-A)/86400000)+1;if(days>7)throw new Error('期間は最大7日間です');const out=[];for(let d=new Date(A);d<=B;d.setDate(d.getDate()+1))out.push(d.toLocaleDateString('sv-SE').replaceAll('-',''));return out}
+$('periodall').onclick=async()=>{setBusy(true);try{const ds=datesBetween($('from').value,$('to').value),targets=[];for(let i=0;i<ds.length;i++){$('status').textContent=`開催場確認中 ${i+1}/${ds.length}日：${ds[i]}`;const vs=await getHeldVenues(ds[i]);for(const v of vs)targets.push({date:ds[i],jcd:v.jcd});await sleep(300)}if(!targets.length)throw new Error('期間内の開催場を取得できませんでした');setBusy(false);await runTargets(targets,`期間一括（${ds.length}日・${targets.length}場）`)}catch(e){setBusy(false);$('status').textContent='エラー：'+e.message}};
+$('excel').onclick=()=>{if(!lastBacktest.length)return alert('先にバックテストしてください');if(typeof XLSX==='undefined')return alert('Excelライブラリを読み込めませんでした');
+const summary=lastBacktest.map(x=>({日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,ロジック:x.logicVersion||'',自信度:x.confidence||'',想定進入:x.entry||'',本番進入:(x.resultEntryOrder||[]).join('-'),本命1:x.main?.[0]||'',本命2:x.main?.[1]||'',本命3:x.main?.[2]||'',抑え1:x.reserve?.[0]||'',抑え2:x.reserve?.[1]||'',抑え3:x.reserve?.[2]||'',注意1:x.caution?.[0]||'',注意2:x.caution?.[1]||'',注意3:x.caution?.[2]||'',穴目1:x.star?.[0]||'',穴目2:x.star?.[1]||'',穴目3:x.star?.[2]||'',実結果:x.result||'',判定:x.judgeLabel||'',払戻:x.payout??'',人気:x.popularity??'',決まり手:x.winningMethod||'',エラー:x.error||''}));
+const detail=[];
+for(const x of lastBacktest){
+ const startByLane=Object.fromEntries((x.resultStartInfo||[]).map(s=>[Number(s.lane),s]));
+ const finishByLane=Object.fromEntries((x.resultFinish||[]).map(f=>[Number(f.lane),f]));
+ for(const f of x.features||[]){
+  const si=startByLane[Number(f.lane)]||{},fi=finishByLane[Number(f.lane)]||{};
+  detail.push({日付:x.date,場:x.venue,R:x.rno,艇:f.lane,選手:f.name,級別:f.rank,実展示コース:f.actualCourse,
+   本番進入:si.course??'',本番ST:si.st??'',本番F:si.flying?1:0,着順:fi.finish??'',着順区分:fi.finishCode??'',レースタイム:fi.time??'',
+   START:f.scores.start,COURSE:f.scores.course,FORM:f.scores.form,MACHINE:f.scores.machine,DIRECT:f.scores.direct,ORDER:f.scores.order,
+   今節平均ST:f.raw.meetAvgST,直近3ST:f.raw.recent3ST,今節平均着:f.raw.meetAvgFinish,直近3着:f.raw.recent3Finish,
+   コース3連率:f.raw.courseTrioRate,モーター2連率:f.raw.motorQuinellaRate,展示タイム:f.raw.exhibitionTime,展示順位:f.raw.exhibitionRank,展示ST:f.raw.startExhibitionST});
+ }}
+const raceResult=[];
+for(const x of lastBacktest){if(x.error)continue;for(const s of x.resultStartInfo||[]){const fi=(x.resultFinish||[]).find(f=>Number(f.lane)===Number(s.lane))||{};raceResult.push({日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,本番進入:s.course??'',艇:s.lane??'',本番ST:s.st??'',本番F:s.flying?1:0,着順:fi.finish??'',着順区分:fi.finishCode??'',選手:fi.racer??'',レースタイム:fi.time??'',決まり手:x.winningMethod||''})}}
+// v2 STEP①: export raw nationwide racer data separately from the legacy prediction scores.
+// This sheet is the source for the new v2 logic; START/COURSE/etc. are intentionally not copied here.
+const step1raw=[];
+for(const x of lastBacktest){
+ if(x.error)continue;
+ const startByLane=Object.fromEntries((x.resultStartInfo||[]).map(s=>[Number(s.lane),s]));
+ const finishByLane=Object.fromEntries((x.resultFinish||[]).map(f=>[Number(f.lane),f]));
+ for(const f of x.features||[]){
+  const si=startByLane[Number(f.lane)]||{},fi=finishByLane[Number(f.lane)]||{},raw=f.raw||{},cs=raw.courseStatsAll||{};
+  const row={日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,艇:f.lane,登録番号:f.registration??'',選手:f.name??'',級別:f.rank??'',支部:f.branch??'',出身地:f.birthplace??'',年齢:f.age??'',体重:f.weight??'',F:f.F??'',L:f.L??'',全国平均ST:raw.avgST??'',全国勝率:raw.nationalWinRate??'',全国2連率:raw.nationalQuinellaRate??'',全国3連率:raw.nationalTrioRate??''};
+  for(let c=1;c<=6;c++){const q=cs[String(c)]||{};row[`${c}C進入率`]=q.entryRate??'';row[`${c}C3連対率`]=q.trioRate??'';row[`${c}C平均ST`]=q.avgST??'';row[`${c}C平均ST順位`]=q.avgStartRank??'';}
+  // Correct-answer labels only. Never use these as STEP① prediction inputs.
+  // v2 STEP②: venue-specific raw values. Keep as blank when the official source has no value; never coerce missing to 0%.
+  row['当地勝率']=raw.localWinRate??'';row['当地2連率']=raw.localQuinellaRate??'';row['当地3連率']=raw.localTrioRate??'';
+  row['正解_本番進入']=si.course??'';row['正解_本番ST']=si.st??'';row['正解_本番F']=si.flying?1:0;row['正解_着順']=fi.finish??'';row['正解_着順区分']=fi.finishCode??'';row['正解_決まり手']=x.winningMethod||'';
+  step1raw.push(row);
+ }}
+const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary),'総合結果');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detail),'各艇内部評価');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(raceResult),'本番結果詳細');XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(step1raw),'v2_①全国共通_RAW');const dates=[...new Set(lastBacktest.map(x=>x.date))].sort();XLSX.writeFile(wb,`kyokun_backtest_${dates[0]||'data'}${dates.length>1?'-'+dates.at(-1):''}_all.xlsx`)};
+
+// ============================================================
+// DATA SYSTEM v2 — STEP-selective research export
+// ============================================================
+const dataIds=['d1','d2','d3','d4','d5','dy'];
+function selectedDataSteps(){return Object.fromEntries(dataIds.map(id=>[id,$(id).checked]))}
+function updateDataPlan(){
+ const s=selectedDataSteps(), names=[];
+ if(s.d1)names.push('①全国共通'); if(s.d2)names.push('②場別'); if(s.d3)names.push('③節');
+ if(s.d4)names.push('④当日'); if(s.d5)names.push('⑤直前'); if(s.dy)names.push('結果');
+ $('dataPlan').textContent='現在：'+(names.join('＋')||'未選択');
+}
+dataIds.forEach(id=>$(id).addEventListener('change',updateDataPlan));
+$('preset12').onclick=()=>{dataIds.forEach(id=>$(id).checked=['d1','d2','dy'].includes(id));updateDataPlan()};
+$('presetResult').onclick=()=>{dataIds.forEach(id=>$(id).checked=id==='dy');updateDataPlan()};
+$('presetAll').onclick=()=>{dataIds.forEach(id=>$(id).checked=true);updateDataPlan()};
+
+async function getResearchPack(date,jcd,rno,sel){
+ const needsRace=sel.d1||sel.d2||sel.d3;
+ const needsBefore=sel.d4||sel.d5;
+ const jobs={};
+ if(needsRace){
+   const q=`/api/race?date=${date}&jcd=${jcd}&rno=${rno}&includeCourseStats=${sel.d1?1:0}&includePreInspection=0`;
+   jobs.race=fetchJson(q);
+ }
+ if(needsBefore)jobs.before=fetchJson(`/api/beforeinfo?date=${date}&jcd=${jcd}&rno=${rno}`);
+ if(sel.dy)jobs.result=fetchJson(`/api/result?date=${date}&jcd=${jcd}&rno=${rno}`);
+ const keys=Object.keys(jobs), vals=await Promise.all(Object.values(jobs));
+ const out=Object.fromEntries(keys.map((k,i)=>[k,vals[i]]));
+ for(const [k,v] of Object.entries(out)){
+   if(!v?.ok)throw new Error(v?.message||v?.error||`${k}取得失敗`);
+ }
+ return {date,jcd,rno,...out};
+}
+function researchRows(packs,sel){
+ const step1=[],step2=[],step3=[],step4=[],step4weather=[],step5=[],answers=[],ev=[];
+ for(const x of packs){
+  if(x.error)continue;
+  const race=x.race||{}, before=x.before||{}, result=x.result||{};
+  const startExByLane=Object.fromEntries((before.startExhibition||[]).map(r=>[Number(r.lane),r]));
+  const resultStart=Object.fromEntries((result.startInfo||[]).map(r=>[Number(r.lane),r]));
+  const resultFinish=Object.fromEntries((result.finish||[]).map(r=>[Number(r.lane),r]));
+  const racers=race.racers||[];
+
+  if(sel.d1||sel.d2||sel.d3||sel.d4){
+   for(const r of racers){
+    const base={日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,艇:r.lane,登録番号:r.registration??'',選手:r.name??''};
+
+    if(sel.d1){
+      const row={...base,級別:r.rank??'',支部:r.branch??'',出身地:r.birthplace??'',年齢:r.age??'',体重:r.weight??'',F:r.F??'',L:r.L??'',全国平均ST:r.avgST??'',全国勝率:r.national?.winRate??'',全国2連率:r.national?.quinellaRate??'',全国3連率:r.national?.trioRate??''};
+      const cs=r.courseStats||{};
+      for(let c=1;c<=6;c++){const q=cs[String(c)]||{};row[`${c}C進入率`]=q.entryRate??'';row[`${c}C3連対率`]=q.trioRate??'';row[`${c}C平均ST`]=q.avgST??'';row[`${c}C平均ST順位`]=q.avgStartRank??'';}
+      step1.push(row);
+    }
+
+    if(sel.d2){
+      step2.push({...base,
+        当地勝率:r.local?.winRate??'',当地2連率:r.local?.quinellaRate??'',当地3連率:r.local?.trioRate??''
+      });
+    }
+
+    if(sel.d3){
+      const row={...base,
+        安定板使用:race.stableBoard===true?1:0,
+        モーターNo:r.motor?.no??'',モーター2連率:r.motor?.quinellaRate??'',モーター3連率:r.motor?.trioRate??'',
+        ボートNo:r.boat?.no??'',ボート2連率:r.boat?.quinellaRate??'',ボート3連率:r.boat?.trioRate??''
+      };
+      const meet=[...(r.currentMeetSafe?.races||[])].sort((a,b)=>String(a.raceDate).localeCompare(String(b.raceDate))||a.raceNo-b.raceNo);
+      meet.forEach((q,i)=>{
+        const n=i+1;
+        row[`今節${n}_日付`]=q.raceDate??'';
+        row[`今節${n}_R`]=q.raceNo??'';
+        row[`今節${n}_進入`]=q.course??'';
+        row[`今節${n}_ST`]=q.st??'';
+        row[`今節${n}_F`]=q.flying?1:0;
+        row[`今節${n}_着順`]=q.finish??'';
+        row[`今節${n}_着順区分`]=q.finishCode??'';
+      });
+      row.今節走数=meet.length;
+      row.今節平均ST=r.currentMeetSafe?.avgST??'';
+      step3.push(row);
+    }
+
+    if(sel.d4){
+      const today=[...(r.currentMeetSafe?.races||[])].filter(q=>String(q.raceDate)===String(x.date)).sort((a,b)=>a.raceNo-b.raceNo);
+      const row={...base,当日既走数:today.length};
+      today.forEach((q,i)=>{
+        const n=i+1;
+        row[`当日${n}_R`]=q.raceNo??'';
+        row[`当日${n}_進入`]=q.course??'';
+        row[`当日${n}_ST`]=q.st??'';
+        row[`当日${n}_F`]=q.flying?1:0;
+        row[`当日${n}_着順`]=q.finish??'';
+        row[`当日${n}_着順区分`]=q.finishCode??'';
+      });
+      step4.push(row);
+    }
+   }
+  }
+
+  if(sel.d4){
+    step4weather.push({
+      日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,
+      気温:before.weather?.airTemperature??'',天候:before.weather?.weather??'',
+      風速:before.weather?.windSpeed??'',
+      水温:before.weather?.waterTemperature??'',波高:before.weather?.waveHeight??'',
+      安定板使用:race.stableBoard===true?1:0
+    });
+  }
+
+  if(sel.d5){
+    for(const r of before.racers||[]){
+      const sx=startExByLane[Number(r.lane)]||{};
+      const pr=r.previousRace||{};
+      step5.push({
+        日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,艇:r.lane,選手:r.name??'',
+        体重:r.weight??'',調整重量:r.adjustWeight??'',展示タイム:r.exhibitionTime??'',チルト:r.tilt??'',
+        プロペラ:r.propeller??'',部品交換:r.partsExchange??'',
+        前走R:pr.raceNo??'',前走進入:pr.course??'',前走ST:pr.st??'',前走F:pr.flying?1:0,
+        前走着順:pr.finish??'',前走着順区分:pr.finishCode??'',
+        スタ展コース:sx.course??'',スタ展ST:sx.st??'',スタ展F:sx.flying?1:0,
+        想定進入:(before.entryOrder||[]).join('-'),枠なり:before.isWakunari===true?1:before.isWakunari===false?0:'',
+        気温:before.weather?.airTemperature??'',天候:before.weather?.weather??'',
+        風速:before.weather?.windSpeed??'',
+        水温:before.weather?.waterTemperature??'',波高:before.weather?.waveHeight??''
+      });
+    }
+  }
+
+  if(sel.dy){
+    const lanes=new Set([...Object.keys(resultStart),...Object.keys(resultFinish)].map(Number));
+    for(const lane of [...lanes].sort((a,b)=>a-b)){
+      const s=resultStart[lane]||{},f=resultFinish[lane]||{};
+      answers.push({
+        日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,艇:lane,
+        本番進入:s.course??'',本番ST:s.st??'',本番F:s.flying?1:0,
+        着順:f.finish??'',着順区分:f.finishCode??'',選手:f.racer??'',レースタイム:f.time??'',
+        決まり手:result.winningMethod??'','3連単':result.trifecta??'',
+        '3連単払戻':result.payout??'','3連単人気':result.popularity??'',
+        返還情報:result.refundText??'',備考:result.remarksText??'',
+        安定板使用:result.stableBoard===true?1:0
+      });
+    }
+    ev.push({
+      日付:x.date,場コード:x.jcd,場:venues[x.jcd],R:x.rno,
+      '3連単':result.trifecta??'','3連単払戻':result.payout??'','3連単人気':result.popularity??'',
+      決まり手:result.winningMethod??'',返還情報:result.refundText??'',備考:result.remarksText??'',
+      全払戻JSON:JSON.stringify(result.payouts||[])
+    });
+  }
+ }
+ return {step1,step2,step3,step4,step4weather,step5,answers,ev};
+}
+function exportResearchExcel(packs,sel){
+ const rows=researchRows(packs,sel), wb=XLSX.utils.book_new();
+ const add=(arr,name)=>{if(arr.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(arr),name)};
+ add(rows.step1,'①全国共通_RAW'); add(rows.step2,'②場別_RAW'); add(rows.step3,'③節_RAW');
+ add(rows.step4,'④当日_選手RAW'); add(rows.step4weather,'④当日_気象RAW'); add(rows.step5,'⑤直前_RAW'); add(rows.answers,'正解Y_結果'); add(rows.ev,'期待値検証_払戻');
+ const ds=[...new Set(packs.map(x=>x.date))].sort();
+ XLSX.writeFile(wb,`kyokun_v2_data_${ds[0]||'data'}${ds.length>1?'-'+ds.at(-1):''}.xlsx`);
+}
+$('dataPeriod').onclick=async()=>{
+ const sel=selectedDataSteps();
+ if(!Object.values(sel).some(Boolean))return alert('取得するSTEPを1つ以上選んでください');
+ setBusy(true);
+ try{
+  const ds=datesBetween($('from').value,$('to').value),targets=[];
+  for(let i=0;i<ds.length;i++){
+    $('status').textContent=`研究データ：開催場確認中 ${i+1}/${ds.length}日 ${ds[i]}`;
+    const vs=await getHeldVenues(ds[i]); for(const v of vs)targets.push({date:ds[i],jcd:v.jcd});
+  }
+  const jobs=[];for(const t of targets)for(let r=1;r<=12;r++)jobs.push({t,r});
+  let next=0,done=0;const packs=[];const started=performance.now();
+  async function worker(){
+    while(true){
+      const i=next++;if(i>=jobs.length)return;const {t,r}=jobs[i];
+      let row;
+      try{row=await getResearchPack(t.date,t.jcd,r,sel)}
+      catch(e){row={date:t.date,jcd:t.jcd,rno:r,error:e.message}}
+      packs.push(row);done++;
+      $('bar').style.width=`${Math.round(done/jobs.length*100)}%`;
+      const sec=Math.max((performance.now()-started)/1000,.001),rpm=done/sec*60;
+      $('status').textContent=`研究データ取得 ${done}/${jobs.length}R ｜ ${rpm.toFixed(1)}R/分`;
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(FAST_CONCURRENCY,jobs.length)},()=>worker()));
+  packs.sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.jcd).localeCompare(String(b.jcd))||a.rno-b.rno);
+  const errors=packs.filter(x=>x.error);
+  if(packs.length===errors.length)throw new Error('全レース取得失敗');
+  exportResearchExcel(packs,sel);
+  $('status').textContent=`研究データ取得完了🔥 ${packs.length-errors.length}/${packs.length}R成功 ｜ Excel出力済み${errors.length?` ｜ エラー${errors.length}R`:''}`;
+ }catch(e){$('status').textContent='エラー：'+e.message}
+ finally{setBusy(false)}
+};
+updateDataPlan();
+
+</script></body></html>

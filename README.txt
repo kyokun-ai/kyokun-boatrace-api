@@ -1,4 +1,4 @@
-キョウ君 BOATRACE AI v0.6 / DATA SYSTEM v2.4
+キョウ君 BOATRACE AI v0.7 / DATA SYSTEM v2.5
 
 変更点
 - 過去検証のSTEP①から、日付指定できない選手コース別ページ取得を完全停止
@@ -10,3 +10,6 @@
 
 重要
 過去バックテスト用Xには、任意の過去日を指定できない現在プロフィール系データを使用しません。
+
+
+v2.5: Historical ① exports no longer contain the obsolete 1C-6C current-profile course-stat columns. Formal RAW data generation restarts from DATA-0001; prior datasets are legacy only.

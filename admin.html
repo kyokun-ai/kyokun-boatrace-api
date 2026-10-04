@@ -12,7 +12,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 @media(max-width:600px){.checks,.preset{grid-template-columns:repeat(2,1fr)}}
 </style></head><body><div class="wrap">
 <a class="homeLink" href="index.html">← メインに戻る</a>
-<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">DATA SYSTEM v2.4｜時間整合性監査済＋①高速化</div>
+<h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">DATA SYSTEM v2.5｜時間整合性監査済＋①高速化</div>
 <div class="panel">
 <div class="grid"><div><label>日付</label><input id="date" type="date"></div><div><label>場</label><select id="jcd"></select></div><div><label>R（通常予想のみ）</label><select id="rno"></select></div></div>
 <button id="predict">キョウ君に予想してもらう</button>
@@ -134,9 +134,8 @@ for(const x of lastBacktest){
  const startByLane=Object.fromEntries((x.resultStartInfo||[]).map(s=>[Number(s.lane),s]));
  const finishByLane=Object.fromEntries((x.resultFinish||[]).map(f=>[Number(f.lane),f]));
  for(const f of x.features||[]){
-  const si=startByLane[Number(f.lane)]||{},fi=finishByLane[Number(f.lane)]||{},raw=f.raw||{},cs=raw.courseStatsAll||{};
+  const si=startByLane[Number(f.lane)]||{},fi=finishByLane[Number(f.lane)]||{},raw=f.raw||{};
   const row={日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,艇:f.lane,登録番号:f.registration??'',選手:f.name??'',級別:f.rank??'',支部:f.branch??'',出身地:f.birthplace??'',年齢:f.age??'',体重:f.weight??'',F:f.F??'',L:f.L??'',全国平均ST:raw.avgST??'',全国勝率:raw.nationalWinRate??'',全国2連率:raw.nationalQuinellaRate??'',全国3連率:raw.nationalTrioRate??''};
-  for(let c=1;c<=6;c++){const q=cs[String(c)]||{};row[`${c}C進入率`]=q.entryRate??'';row[`${c}C3連対率`]=q.trioRate??'';row[`${c}C平均ST`]=q.avgST??'';row[`${c}C平均ST順位`]=q.avgStartRank??'';}
   // Correct-answer labels only. Never use these as STEP① prediction inputs.
   // v2 STEP②: venue-specific raw values. Keep as blank when the official source has no value; never coerce missing to 0%.
   row['当地勝率']=raw.localWinRate??'';row['当地2連率']=raw.localQuinellaRate??'';row['当地3連率']=raw.localTrioRate??'';
@@ -194,9 +193,7 @@ function researchRows(packs,sel){
 
     if(sel.d1){
       const row={...base,級別:r.rank??'',支部:r.branch??'',出身地:r.birthplace??'',年齢:r.age??'',体重:r.weight??'',F:r.F??'',L:r.L??'',全国平均ST:r.avgST??'',全国勝率:r.national?.winRate??'',全国2連率:r.national?.quinellaRate??'',全国3連率:r.national?.trioRate??''};
-      const cs=r.courseStats||{};
-      for(let c=1;c<=6;c++){const q=cs[String(c)]||{};row[`${c}C進入率`]=q.entryRate??'';row[`${c}C3連対率`]=q.trioRate??'';row[`${c}C平均ST`]=q.avgST??'';row[`${c}C平均ST順位`]=q.avgStartRank??'';}
-      step1.push(row);
+          step1.push(row);
     }
 
     if(sel.d2){

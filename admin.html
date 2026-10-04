@@ -18,7 +18,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <button id="predict">キョウ君に予想してもらう</button>
 <button id="backtest" class="secondary">🧪 この日・この場 12R</button>
 <button id="dayall" class="bulk">🔥 この日の開催場を全部バックテスト</button>
-<div class="period"><div><label>期間開始</label><input id="from" type="date"></div><div><label>期間終了（最大7日）</label><input id="to" type="date"></div></div>
+<div class="period"><div><label>期間開始</label><input id="from" type="date"></div><div><label>期間終了（①/②のみ最大31日・その他最大7日）</label><input id="to" type="date"></div></div>
 <button id="periodall" class="periodbtn">📅 期間内の全開催場を一括バックテスト</button>
 <div class="note">※ 一括テストではR選択欄は使用しません。開催場を自動取得し、最大12Rを同時処理します（失敗時は自動再試行）。進捗に経過時間・平均秒/R・R/分を表示します。</div>
 <div class="datamode">
@@ -108,7 +108,7 @@ async function runTargets(targets,label){
 }
 $('backtest').onclick=()=>runTargets([{date:ymd($('date').value),jcd:$('jcd').value}],'1場バックテスト');
 $('dayall').onclick=async()=>{setBusy(true);try{const date=ymd($('date').value);$('status').textContent='この日の開催場を確認中…';const vs=await getHeldVenues(date);if(!vs.length)throw new Error('この日の開催場を取得できませんでした');setBusy(false);await runTargets(vs.map(v=>({date,jcd:v.jcd})),`1日全場バックテスト（${vs.length}場）`)}catch(e){setBusy(false);$('status').textContent='エラー：'+e.message}};
-function datesBetween(a,b){const A=new Date(a+'T00:00:00'),B=new Date(b+'T00:00:00');if(isNaN(A)||isNaN(B)||B<A)throw new Error('期間指定を確認してください');const days=Math.round((B-A)/86400000)+1;if(days>7)throw new Error('期間は最大7日間です');const out=[];for(let d=new Date(A);d<=B;d.setDate(d.getDate()+1))out.push(d.toLocaleDateString('sv-SE').replaceAll('-',''));return out}
+function datesBetween(a,b,maxDays=7){const A=new Date(a+'T00:00:00'),B=new Date(b+'T00:00:00');if(isNaN(A)||isNaN(B)||B<A)throw new Error('期間指定を確認してください');const days=Math.round((B-A)/86400000)+1;if(days>maxDays)throw new Error(`この取得条件の期間は最大${maxDays}日間です`);const out=[];for(let d=new Date(A);d<=B;d.setDate(d.getDate()+1))out.push(d.toLocaleDateString('sv-SE').replaceAll('-',''));return out}
 $('periodall').onclick=async()=>{setBusy(true);try{const ds=datesBetween($('from').value,$('to').value),targets=[];for(let i=0;i<ds.length;i++){$('status').textContent=`開催場確認中 ${i+1}/${ds.length}日：${ds[i]}`;const vs=await getHeldVenues(ds[i]);for(const v of vs)targets.push({date:ds[i],jcd:v.jcd});await sleep(300)}if(!targets.length)throw new Error('期間内の開催場を取得できませんでした');setBusy(false);await runTargets(targets,`期間一括（${ds.length}日・${targets.length}場）`)}catch(e){setBusy(false);$('status').textContent='エラー：'+e.message}};
 $('excel').onclick=()=>{if(!lastBacktest.length)return alert('先にバックテストしてください');if(typeof XLSX==='undefined')return alert('Excelライブラリを読み込めませんでした');
 const summary=lastBacktest.map(x=>({日付:x.date,場コード:x.jcd,場:x.venue,R:x.rno,ロジック:x.logicVersion||'',自信度:x.confidence||'',想定進入:x.entry||'',本番進入:(x.resultEntryOrder||[]).join('-'),本命1:x.main?.[0]||'',本命2:x.main?.[1]||'',本命3:x.main?.[2]||'',抑え1:x.reserve?.[0]||'',抑え2:x.reserve?.[1]||'',抑え3:x.reserve?.[2]||'',注意1:x.caution?.[0]||'',注意2:x.caution?.[1]||'',注意3:x.caution?.[2]||'',穴目1:x.star?.[0]||'',穴目2:x.star?.[1]||'',穴目3:x.star?.[2]||'',実結果:x.result||'',判定:x.judgeLabel||'',払戻:x.payout??'',人気:x.popularity??'',決まり手:x.winningMethod||'',エラー:x.error||''}));
@@ -310,7 +310,9 @@ $('dataPeriod').onclick=async()=>{
  if(!Object.values(sel).some(Boolean))return alert('取得するSTEPを1つ以上選んでください');
  setBusy(true);
  try{
-  const ds=datesBetween($('from').value,$('to').value),targets=[];
+  const lightOnly=(sel.d1||sel.d2)&&!sel.d3&&!sel.d4&&!sel.d5&&!sel.dy;
+  const maxDays=lightOnly?31:7;
+  const ds=datesBetween($('from').value,$('to').value,maxDays),targets=[];
   for(let i=0;i<ds.length;i++){
     $('status').textContent=`研究データ：開催場確認中 ${i+1}/${ds.length}日 ${ds[i]}`;
     const vs=await getHeldVenues(ds[i]); for(const v of vs)targets.push({date:ds[i],jcd:v.jcd});
@@ -334,7 +336,7 @@ $('dataPeriod').onclick=async()=>{
   const errors=packs.filter(x=>x.error);
   if(packs.length===errors.length)throw new Error('全レース取得失敗');
   exportResearchExcel(packs,sel);
-  $('status').textContent=`研究データ取得完了🔥 ${packs.length-errors.length}/${packs.length}R成功 ｜ Excel出力済み${errors.length?` ｜ エラー${errors.length}R`:''}`;
+  $('status').textContent=`研究データ取得完了🔥 ${ds.length}日 ｜ ${packs.length-errors.length}/${packs.length}R成功 ｜ Excel出力済み${errors.length?` ｜ エラー${errors.length}R`:''}`;
  }catch(e){$('status').textContent='エラー：'+e.message}
  finally{setBusy(false)}
 };

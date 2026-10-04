@@ -1744,27 +1744,31 @@ app.get('/api/result', async (req,res)=>{
     const waterTemperature=Number((body.match(/水温\s*([0-9.]+)℃/)||[])[1]);
     const waveHeight=Number((body.match(/波高\s*([0-9.]+)cm/)||[])[1]);
     let windDirection=null, windDirectionRaw=null;
-    // Search only around the water-weather heading and capture direction-bearing image metadata.
-    const weatherHeading=$('*').filter((_,el)=>clean($(el).text())==='水面気象情報').first();
-    const weatherRoot=weatherHeading.length ? weatherHeading.parent() : null;
-    const candidates=[];
-    const pushImg=(el)=>{
-      const a=$(el); const raw=[a.attr('alt'),a.attr('title'),a.attr('src'),a.attr('class'),a.attr('style')].filter(Boolean).join(' ');
-      if(raw) candidates.push(raw);
+    // STEP6 diagnostic: the visible wind arrow is not img_corner1_2.png.
+    // Do not guess a direction. Capture DOM metadata around the water-weather block
+    // so the real direction-bearing class/style/data attribute can be identified.
+    const weatherHeading=$('*').filter((_,el)=>clean($(el).text()).startsWith('水面気象情報')).first();
+    const meta=[];
+    const seen=new Set();
+    const pushEl=(el)=>{
+      if(!el) return; const a=$(el);
+      const attrs=el.attribs||{};
+      const attrText=Object.keys(attrs).filter(k=>/^(class|id|style|data-|aria-|src|alt|title)/i.test(k))
+        .map(k=>`${k}=${attrs[k]}`).join(';');
+      const txt=clean(a.clone().children().remove().end().text()).slice(0,80);
+      const item=`${el.tagName||el.name||''}[${attrText}]${txt?` text=${txt}`:''}`;
+      if(item&&!seen.has(item)){seen.add(item);meta.push(item);}
     };
-    if(weatherRoot&&weatherRoot.length) weatherRoot.find('img').each((_,el)=>pushImg(el));
-    if(!candidates.length){
-      $('img').each((_,el)=>{ const a=$(el),src=String(a.attr('src')||''); if(/wind|weather|kaze|corner/i.test(src)) pushImg(el); });
+    if(weatherHeading.length){
+      let root=weatherHeading;
+      for(let i=0;i<4&&root.length;i++,root=root.parent()){
+        pushEl(root[0]); root.find('*').each((_,el)=>pushEl(el));
+        root.prevAll().slice(0,2).each((_,el)=>pushEl(el));
+        root.nextAll().slice(0,4).each((_,el)=>{pushEl(el);$(el).find('*').each((__,ch)=>pushEl(ch));});
+      }
     }
-    const raw=candidates.join(' | '); windDirectionRaw=raw||null;
-    const dirPatterns=[
-      ['北東',/(北東|NE|north.?east)/i],['南東',/(南東|SE|south.?east)/i],
-      ['南西',/(南西|SW|south.?west)/i],['北西',/(北西|NW|north.?west)/i],
-      ['北',/(?:^|[^東西南])(北)(?:$|[^東西南])|north/i],['東',/(?:^|[^北南])(東)(?:$|[^北南])|east/i],
-      ['南',/(?:^|[^東西北])(南)(?:$|[^東西北])|south/i],['西',/(?:^|[^北南])(西)(?:$|[^北南])|west/i]
-    ];
-    for(const [label,re] of dirPatterns){ if(re.test(raw)){windDirection=label;break;} }
-    // Calm is a valid state: direction is intentionally '無風' when official wind speed is zero.
+    windDirectionRaw=meta.slice(0,180).join(' | ')||null;
+    // Only calm can be determined without direction metadata. Never fabricate a compass direction.
     if(Number.isFinite(windSpeed)&&windSpeed===0) windDirection='無風';
     const weather={
       airTemperature:Number.isFinite(airTemperature)?airTemperature:null,

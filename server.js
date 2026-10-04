@@ -1792,11 +1792,16 @@ app.get('/api/result', async (req,res)=>{
 // STEP6 tide test: only venue->JMA stations with an explicit, reviewed mapping are enabled.
 // Unmapped/non-tidal venues stay blank rather than receiving guessed tide data.
 const STEP6_TIDE_STATIONS={
-  '04':{code:'TK',name:'東京'},      // 平和島
-  '14':{code:'KM',name:'小松島'},   // 鳴門
-  '16':{code:'UN',name:'宇野'},     // 児島
-  '17':{code:'166744',name:'広島'}, // 宮島
-  '20':{code:'MO',name:'門司'}      // 若松
+  // ②-B潮汐の公式検証対象。近いだけの地点は入れず、対応根拠を確認した場だけ有効化。
+  '03':{code:'TK',name:'東京'},     // 江戸川: 河川水面・上げ潮/下げ潮を公式明記
+  '15':{code:'TX',name:'多度津'},   // 丸亀: 満潮/干潮の展開差を公式明記
+  '16':{code:'UN',name:'宇野'},     // 児島: 瀬戸内・満潮/干潮の展開差を公式明記
+  '17':{code:'Q8',name:'広島'},     // 宮島: 4m超の潮位差を公式明記
+  '18':{code:'QA',name:'徳山'},     // 徳山: JMA同名地点、3m超の潮位差を公式明記
+  '19':{code:'CF',name:'長府'},     // 下関: 競走場所在地=長府、3m超で海水流入を公式明記
+  '20':{code:'MO',name:'門司'},     // 若松: 潮の出入り・満干潮の展開差を公式明記
+  '22':{code:'QF',name:'博多'}      // 福岡: 博多湾側。②-B採否は9月検証で決定
+  // 24大村は潮汐影響自体は公式明記だが、JMA掲載地点に大村湾の直接対応を確認できないため未確定のまま。
 };
 const step6TideCache=new Map();
 async function fetchText(url, timeoutMs=15000){

@@ -1817,45 +1817,63 @@ async function fetchText(url, timeoutMs=15000){
   }
 }
 function hmToMin(v){const m=String(v||'').match(/^(\d{1,2}):(\d{2})$/);return m?Number(m[1])*60+Number(m[2]):null;}
+async function fetchStep6TideDay(date,st){
+  const y=date.slice(0,4), mo=date.slice(4,6), d=date.slice(6,8), key=`${date}:${st.code}`;
+  let parsed=step6TideCache.get(key);
+  if(parsed) return parsed;
+  const url=`https://www.data.jma.go.jp/kaiyou/db/tide/suisan/suisan.php?LV=DL&S_HILO=on&S_HOUR=on&ds=${d}&ms=${mo}&ys=${y}&de=${d}&me=${mo}&ye=${y}&stn=${encodeURIComponent(st.code)}`;
+  const html=await fetchText(url,15000);
+  const $t=cheerio.load(html); const target=`${y}/${mo}/${d}`;
+  let hilo=null,hourly=null;
+  $t('tr').each((_,tr)=>{
+    const cells=$t(tr).find('th,td').map((__,c)=>clean($t(c).text())).get();
+    if(!cells.length||!String(cells[0]).includes(target)) return;
+    const times=cells.filter(x=>/^\d{1,2}:\d{2}$/.test(x));
+    const nums=cells.filter(x=>/^-?\d+$/.test(x)).map(Number);
+    if(times.length>=2 && !hilo){
+      const pairs=[];
+      for(let i=1;i<cells.length-1;i++) if(/^\d{1,2}:\d{2}$/.test(cells[i]) && /^-?\d+$/.test(cells[i+1])) pairs.push({time:cells[i],level:Number(cells[i+1])});
+      if(pairs.length>=2){
+        // JMA HILO row is high-tide pairs first, then low-tide pairs. Assign type BEFORE chronological sorting.
+        const half=Math.ceil(pairs.length/2);
+        hilo=pairs.map((x,i)=>({...x,type:i<half?'満潮':'干潮'}));
+      }
+    }
+    if(times.length===0 && nums.length>=24 && !hourly) hourly=nums.slice(-24);
+  });
+  parsed={hilo,hourly,url}; step6TideCache.set(key,parsed); return parsed;
+}
+function step6ShiftDate(date,delta){
+  const dt=new Date(Date.UTC(Number(date.slice(0,4)),Number(date.slice(4,6))-1,Number(date.slice(6,8))));
+  dt.setUTCDate(dt.getUTCDate()+delta);
+  return `${dt.getUTCFullYear()}${String(dt.getUTCMonth()+1).padStart(2,'0')}${String(dt.getUTCDate()).padStart(2,'0')}`;
+}
 async function fetchStep6Tide(date,jcd,rno,deadline){
   const st=STEP6_TIDE_STATIONS[String(jcd).padStart(2,'0')];
   if(!st) return {station:'',status:'対象外または対応地点未確定'};
-  const y=date.slice(0,4), mo=date.slice(4,6), d=date.slice(6,8), key=`${date}:${st.code}`;
-  let parsed=step6TideCache.get(key);
-  if(!parsed){
-    const url=`https://www.data.jma.go.jp/kaiyou/db/tide/suisan/suisan.php?LV=DL&S_HILO=on&S_HOUR=on&ds=${d}&ms=${mo}&ys=${y}&de=${d}&me=${mo}&ye=${y}&stn=${encodeURIComponent(st.code)}`;
-    const html=await fetchText(url,15000);
-    const $t=cheerio.load(html); const target=`${y}/${mo}/${d}`;
-    let hilo=null,hourly=null;
-    $t('tr').each((_,tr)=>{
-      const cells=$t(tr).find('th,td').map((__,c)=>clean($t(c).text())).get();
-      if(!cells.length||!String(cells[0]).includes(target)) return;
-      const times=cells.filter(x=>/^\d{1,2}:\d{2}$/.test(x));
-      const nums=cells.filter(x=>/^-?\d+$/.test(x)).map(Number);
-      // HILO table has time/value pairs; hourly table has 24 numeric values and no HH:MM cells.
-      if(times.length>=2 && !hilo){
-        const pairs=[];
-        for(let i=1;i<cells.length-1;i++) if(/^\d{1,2}:\d{2}$/.test(cells[i]) && /^-?\d+$/.test(cells[i+1])) pairs.push({time:cells[i],level:Number(cells[i+1])});
-        if(pairs.length>=2) hilo=pairs;
-      }
-      if(times.length===0 && nums.length>=24 && !hourly) hourly=nums.slice(-24);
-    });
-    parsed={hilo, hourly, url}; step6TideCache.set(key,parsed);
-  }
-  if(!parsed.hilo||parsed.hilo.length<2) return {station:st.name,status:'気象庁解析失敗'};
   const raceMin=hmToMin(deadline); if(raceMin==null) return {station:st.name,status:'レース時刻取得失敗'};
-  const events=parsed.hilo.map(x=>({...x,min:hmToMin(x.time)})).filter(x=>x.min!=null).sort((a,b)=>a.min-b.min);
-  // In the JMA HILO table the first half is high tides and the second half is low tides.
-  const half=Math.ceil(events.length/2); events.forEach((e,i)=>e.type=i<half?'満潮':'干潮'); events.sort((a,b)=>a.min-b.min);
+  const dates=[step6ShiftDate(date,-1),date,step6ShiftDate(date,1)];
+  const days=await Promise.all(dates.map(x=>fetchStep6TideDay(x,st)));
+  const center=days[1];
+  if(!center.hilo||center.hilo.length<2) return {station:st.name,status:'気象庁解析失敗'};
+  const events=[];
+  days.forEach((day,di)=>{
+    const offset=(di-1)*1440;
+    for(const e of (day.hilo||[])){
+      const m=hmToMin(e.time); if(m!=null) events.push({...e,min:m+offset,dayOffset:di-1});
+    }
+  });
+  events.sort((a,b)=>a.min-b.min);
   let prev=null,next=null; for(const e of events){if(e.min<=raceMin)prev=e; if(e.min>raceMin&&!next)next=e;}
-  let state=''; if(prev&&next){state=prev.type==='干潮'&&next.type==='満潮'?'上げ潮':prev.type==='満潮'&&next.type==='干潮'?'下げ潮':'';}
+  let state='';
+  if(prev&&next){state=prev.type==='干潮'&&next.type==='満潮'?'上げ潮':prev.type==='満潮'&&next.type==='干潮'?'下げ潮':'';}
   const nearest=events.slice().sort((a,b)=>Math.abs(a.min-raceMin)-Math.abs(b.min-raceMin))[0];
   if(nearest&&Math.abs(nearest.min-raceMin)<=30) state=nearest.type+'付近';
   const highs=events.filter(x=>x.type==='満潮'), lows=events.filter(x=>x.type==='干潮');
   const high=highs.slice().sort((a,b)=>Math.abs(a.min-raceMin)-Math.abs(b.min-raceMin))[0]||null;
   const low=lows.slice().sort((a,b)=>Math.abs(a.min-raceMin)-Math.abs(b.min-raceMin))[0]||null;
-  const hour=Math.max(0,Math.min(23,Math.round(raceMin/60))); const level=parsed.hourly&&parsed.hourly.length===24?parsed.hourly[hour]:null;
-  return {station:st.name,status:'OK',highTime:high?.time||'',highLevel:high?.level??'',lowTime:low?.time||'',lowLevel:low?.level??'',state,level:level??'',deadline,source:parsed.url};
+  const hour=Math.max(0,Math.min(23,Math.round(raceMin/60))); const level=center.hourly&&center.hourly.length===24?center.hourly[hour]:null;
+  return {station:st.name,status:'OK',highTime:high?.time||'',highLevel:high?.level??'',lowTime:low?.time||'',lowLevel:low?.level??'',state,level:level??'',deadline,source:center.url};
 }
 
 app.get('/api/turbo-status', (req,res) => {

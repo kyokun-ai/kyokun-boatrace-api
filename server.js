@@ -1782,6 +1782,7 @@ app.get('/api/result', async (req,res)=>{
     // STEP6: race-level water/weather. BOATRACE encodes wind direction in
     // the official CSS class is-wind1..is-wind16 (clockwise from North).
     const airTemperature=Number((body.match(/気温\s*([0-9.]+)℃/)||[])[1]);
+    const weatherText=(body.match(/気温\s*[0-9.]+℃\s*([^0-9]{1,12}?)\s*風速/)||[])[1]?.trim()||null;
     const windSpeed=Number((body.match(/風速\s*([0-9.]+)m/)||[])[1]);
     const waterTemperature=Number((body.match(/水温\s*([0-9.]+)℃/)||[])[1]);
     const waveHeight=Number((body.match(/波高\s*([0-9.]+)cm/)||[])[1]);
@@ -1812,7 +1813,7 @@ app.get('/api/result', async (req,res)=>{
       windSpeed:Number.isFinite(windSpeed)?windSpeed:null,
       waterTemperature:Number.isFinite(waterTemperature)?waterTemperature:null,
       waveHeight:Number.isFinite(waveHeight)?waveHeight:null,
-      windDirection,windDirectionNumber,windDirectionRaw
+      windDirection,windDirectionNumber,windDirectionRaw,weather:weatherText
     };
 
     res.json({
@@ -1826,6 +1827,59 @@ app.get('/api/result', async (req,res)=>{
     res.status(500).json({ok:false,version:'2.7-step3c-bulk-backtest',error:error.message});
   }
 });
+
+
+
+
+// ============================================================
+// 住之江攻略：場特性データ一括取得UI（1〜6か月）
+// ①/②-Aや選手能力は取得しない。既存 /api/result の公式結果・気象だけを使用。
+// ============================================================
+app.get('/suminoe-data', (req,res)=>res.type('html').send(`<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>住之江データ取得</title><style>
+body{font-family:system-ui,sans-serif;max-width:980px;margin:auto;padding:18px;background:#f5f7fb;color:#172033}.box{background:#fff;border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 2px 12px #0001}h1{font-size:24px}select,input,button{font-size:16px;padding:10px;margin:5px}button{font-weight:700;cursor:pointer}.bar{height:16px;background:#e5e7eb;border-radius:8px;overflow:hidden}.bar>div{height:100%;width:0;background:#2563eb;transition:.2s}.muted{color:#667085;font-size:13px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid #eee;padding:6px;text-align:center}.ok{color:#087a3e}.err{color:#b42318}</style></head><body>
+<h1>🚤 住之江・場特性データ取得</h1><div class="box"><b>選手情報なし／①・②-A再取得なし</b><div class="muted">住之江(12)の結果・進入・本番ST・決まり手・風向/風速・波高・気温・水温等だけを取得します。</div><br>
+<label>開始月 <input id="start" type="month"></label><label>期間 <select id="months">${[1,2,3,4,5,6].map(n=>`<option value="${n}">${n}か月</option>`).join('')}</select></label>
+<button id="go" onclick="run()">取得開始</button><button id="dl" onclick="downloadCsv()" disabled>Excel用CSV保存</button></div>
+<div class="box"><div id="status">待機中</div><div class="bar"><div id="prog"></div></div><div id="detail" class="muted"></div></div>
+<div class="box"><b>取得結果</b><div id="summary" class="muted">まだありません</div><div style="overflow:auto;max-height:420px"><table><thead><tr><th>日付</th><th>R</th><th>1-2-3着</th><th>進入</th><th>決まり手</th><th>風向</th><th>風速</th><th>波高</th></tr></thead><tbody id="rows"></tbody></table></div></div>
+<script>
+const JCD='12'; let DATA=[]; const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+(function(){const d=new Date();d.setMonth(d.getMonth()-1);start.value=d.toISOString().slice(0,7)})();
+function ymd(d){return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')}
+function rangeMonths(v,n){const [y,m]=v.split('-').map(Number);const a=new Date(y,m-1,1),b=new Date(y,m-1+n,0);return [a,b]}
+function esc(v){v=v??'';return /[",\n]/.test(String(v))?'"'+String(v).replaceAll('"','""')+'"':String(v)}
+async function json(url){const r=await fetch(url);let z;try{z=await r.json()}catch{throw Error('JSON取得失敗 '+r.status)};return {status:r.status,z}}
+async function run(){
+ DATA=[];rows.innerHTML='';dl.disabled=true;go.disabled=true;status.textContent='取得準備中…';
+ try{
+  if(!start.value)throw Error('開始月を選んでください'); const n=Number(months.value); const [a,b]=rangeMonths(start.value,n);
+  const days=[];for(let d=new Date(a);d<=b;d.setDate(d.getDate()+1))days.push(new Date(d)); let done=0,held=0,errors=0;
+  for(const d of days){const date=ymd(d);detail.textContent=date+' 開催確認中…';
+   try{const vr=await json('/api/venues?date='+date);const isHeld=vr.z.ok&&vr.z.venues?.some(v=>v.jcd===JCD);
+    if(isHeld){held++;detail.textContent=date+' 住之江 1〜12R取得中…';
+      const batch=await Promise.all(Array.from({length:12},async(_,i)=>{const rno=i+1;try{const rr=await json('/api/result?date='+date+'&jcd='+JCD+'&rno='+rno);return {rno,...rr}}catch(e){return {rno,error:e.message}}}));
+      for(const x of batch){if(x.z?.ok){const z=x.z;const byFinish=[...z.finish].filter(q=>Number.isFinite(q.finish)).sort((u,v)=>u.finish-v.finish);const byCourse=[...z.startInfo].sort((u,v)=>u.course-v.course);const rec={
+       date,rno:x.rno,dayNo:'',finish:[1,2,3,4,5,6].map(pos=>byFinish.find(q=>q.finish===pos)?.lane??''),
+       course:[1,2,3,4,5,6].map(c=>byCourse.find(q=>q.course===c)?.lane??''),st:[1,2,3,4,5,6].map(c=>byCourse.find(q=>q.course===c)?.st??''),
+       method:z.winningMethod??'',windDirection:z.weather?.windDirection??'',windSpeed:z.weather?.windSpeed??'',waveHeight:z.weather?.waveHeight??'',airTemperature:z.weather?.airTemperature??'',waterTemperature:z.weather?.waterTemperature??'',weather:z.weather?.weather??'',
+       abnormal:[z.refundText,z.remarksText,z.stableBoard?'安定板使用':''].filter(Boolean).join(' / '),note:''};DATA.push(rec);
+       const tr=document.createElement('tr');tr.innerHTML='<td>'+date+'</td><td>'+x.rno+'R</td><td>'+rec.finish.slice(0,3).join('-')+'</td><td>'+rec.course.join('-')+'</td><td>'+rec.method+'</td><td>'+rec.windDirection+'</td><td>'+rec.windSpeed+'</td><td>'+rec.waveHeight+'</td>';rows.appendChild(tr);
+      } else if(x.status!==409){errors++;}}
+    }
+   }catch(e){errors++;}
+   done++;prog.style.width=(done/days.length*100).toFixed(1)+'%';status.textContent='取得中 '+done+'/'+days.length+'日';summary.textContent='開催 '+held+'日 / '+DATA.length+'R取得 / エラー '+errors; await sleep(80);
+  }
+  DATA.sort((a,b)=>a.date.localeCompare(b.date)||a.rno-b.rno);status.textContent='完了 🔥';detail.textContent='住之江 '+start.value+'から'+n+'か月';summary.textContent='開催 '+held+'日 / '+DATA.length+'R取得 / エラー '+errors;dl.disabled=DATA.length===0;
+ }catch(e){status.textContent='エラー：'+e.message;}finally{go.disabled=false;}
+}
+function downloadCsv(){
+ const h=['日付','R','開催日目','1着艇','2着艇','3着艇','4着艇','5着艇','6着艇','1コース艇','2コース艇','3コース艇','4コース艇','5コース艇','6コース艇','1コースST','2コースST','3コースST','4コースST','5コースST','6コースST','決まり手','風向','風速(m/s)','波高(cm)','気温(℃)','水温(℃)','天候','異常・返還','備考'];
+ const lines=[h.map(esc).join(',')];for(const x of DATA){lines.push([x.date,x.rno,x.dayNo,...x.finish,...x.course,...x.st,x.method,x.windDirection,x.windSpeed,x.waveHeight,x.airTemperature,x.waterTemperature,x.weather,x.abnormal,x.note].map(esc).join(','))}
+ const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='住之江データ_'+start.value.replace('-','')+'_'+months.value+'か月.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+</script></body></html>`));
 
 
 // v3.0 cache diagnostics

@@ -36,13 +36,14 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <label class="check"><input id="dvenue" type="checkbox">🏁 場特性</label>
 </div>
 <div id="venueResearch" class="venueResearch">
-<div class="venueTag">🏁 住之江攻略・場特性専用</div>
+<div class="venueTag">🏁 競艇場別攻略・場特性専用</div>
 <div class="note">選手情報・①・②-Aは取得しません。結果／本番進入／本番ST／決まり手／風向・風速／波高／気温／水温／天候／異常・返還だけを1つのExcelにまとめます。</div>
 <div class="grid" style="margin-top:10px">
+<div><label>攻略場</label><select id="venueTarget"><option value="12">12 住之江</option></select></div>
 <div><label>開始月</label><input id="venueStartMonth" type="month"></div>
 <div><label>期間（最大6か月）</label><select id="venueMonths"><option value="1">1か月</option><option value="2">2か月</option><option value="3">3か月</option><option value="4">4か月</option><option value="5">5か月</option><option value="6">6か月</option></select></div>
 </div>
-<div class="note">対象場：12 住之江（まず1場攻略用）</div>
+<div class="note">現在の攻略対象：住之江。今後ここへ24場を順番に追加します。</div>
 </div>
 <div class="preset">
 <button id="preset12" class="secondary">①＋②＋結果</button>
@@ -344,36 +345,47 @@ function exportResearchExcel(packs,sel){
 }
 async function exportVenueResearchExcel(){
  if(typeof XLSX==='undefined')throw new Error('Excelライブラリを読み込めませんでした');
- const start=$('venueStartMonth').value, months=Number($('venueMonths').value||1), JCD='12';
+ const start=$('venueStartMonth').value, months=Number($('venueMonths').value||1), JCD=$('venueTarget')?.value||'12', venueName=venues[JCD]||JCD;
  if(!start)throw new Error('場特性の開始月を選んでください');
  const [yy,mm]=start.split('-').map(Number), a=new Date(yy,mm-1,1), b=new Date(yy,mm-1+months,0);
  const days=[];for(let d=new Date(a);d<=b;d.setDate(d.getDate()+1))days.push(d.toLocaleDateString('sv-SE').replaceAll('-',''));
  const rows=[];let held=0,done=0,failed=0,cancelled=0;
- async function heldSuminoe(date){
+ const heldDates=[];
+ async function heldTargetVenue(date){
   const seen=new Map();for(let k=0;k<3;k++){try{for(const v of await getHeldVenues(date))if(v?.jcd)seen.set(String(v.jcd),v)}catch{}if(k<2)await sleep(250*(k+1))}return seen.has(JCD);
  }
  for(const date of days){
-  $('status').textContent=`🏁 場特性：住之江開催確認 ${++done}/${days.length}日 ${date}`;$('bar').style.width=`${Math.round(done/days.length*100)}%`;
-  if(!(await heldSuminoe(date)))continue;held++;
+  $('status').textContent=`🏁 場特性：${venueName}開催確認 ${++done}/${days.length}日 ${date}`;$('bar').style.width=`${Math.round(done/days.length*100)}%`;
+  if(!(await heldTargetVenue(date)))continue;held++;heldDates.push(date);
   const jobs=Array.from({length:12},(_,i)=>i+1);let next=0;
   async function worker(){while(true){const i=next++;if(i>=jobs.length)return;const rno=jobs[i];let result=null,lastErr='';
     for(let t=0;t<4;t++){try{const z=await fetchJson(`/api/result?date=${date}&jcd=${JCD}&rno=${rno}`);if(z?.ok){result=z;break}lastErr=z?.error||z?.message||'取得失敗'}catch(e){lastErr=e.message}if(t<3)await sleep(250*(t+1))}
     if(!result){const isCancel=/結果がまだ確定していません|レース中止|中止順延|開催中止|不成立/.test(lastErr);if(isCancel)cancelled++;else failed++;rows.push({日付:date,R:rno,取得状態:isCancel?'CANCELLED':'FAILED',取得エラー:lastErr});continue}
     const startInfo=[...(result.startInfo||[])].sort((x,y)=>Number(x.course)-Number(y.course));
-    const finish=[...(result.finish||[])].filter(x=>Number.isFinite(Number(x.finish))).sort((x,y)=>Number(x.finish)-Number(y.finish));
+    const allFinish=[...(result.finish||[])];
+    const finish=allFinish.filter(x=>Number.isFinite(Number(x.finish))).sort((x,y)=>Number(x.finish)-Number(y.finish));
+    const abnormalFinish=allFinish.filter(x=>!Number.isFinite(Number(x.finish))&&x.finishCode).map(x=>`${x.lane}号艇:${x.finishCode}`);
     const row={日付:date,R:rno,開催日目:'',取得状態:'OK',取得エラー:''};
     for(let n=1;n<=6;n++){row[`${n}着艇`]=finish.find(x=>Number(x.finish)===n)?.lane??'';row[`${n}コース艇`]=startInfo.find(x=>Number(x.course)===n)?.lane??'';row[`${n}コースST`]=startInfo.find(x=>Number(x.course)===n)?.st??''}
-    Object.assign(row,{決まり手:result.winningMethod??'',風向:result.weather?.windDirection??'',風速_m_s:result.weather?.windSpeed??'',波高_cm:result.weather?.waveHeight??'',気温_C:result.weather?.airTemperature??'',水温_C:result.weather?.waterTemperature??'',天候:result.weather?.weather??'',異常_返還:[result.refundText,result.remarksText,result.stableBoard?'安定板使用':''].filter(Boolean).join(' / '),備考:''});rows.push(row);
+    const abnormalParts=[...abnormalFinish,result.refundText,result.remarksText,result.stableBoard?'安定板使用':''].filter(Boolean);
+    const missingCourse=[];for(let n=1;n<=6;n++)if(!startInfo.find(x=>Number(x.course)===n))missingCourse.push(`${n}コース欠損/不出走`);
+    abnormalParts.push(...missingCourse);
+    Object.assign(row,{決まり手:result.winningMethod??'',風向:result.weather?.windDirection??'',風速_m_s:result.weather?.windSpeed??'',波高_cm:result.weather?.waveHeight??'',気温_C:result.weather?.airTemperature??'',水温_C:result.weather?.waterTemperature??'',天候:result.weather?.weather??'',異常_返還:[...new Set(abnormalParts)].join(' / '),備考:''});rows.push(row);
   }}
   await Promise.all(Array.from({length:6},()=>worker()));
  }
+ // 開催日目：住之江の開催日を連続開催単位にまとめ、開催初日から1日目・2日目…を付与。
+ // 1日だけ空く休催を同一節と誤認しないよう、日付差が1日を超えたら新しい開催として扱う。
+ const dayNoByDate=new Map();let meetDay=0,prevHeld=null;
+ for(const d of heldDates){const cur=new Date(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}T00:00:00`);if(!prevHeld||Math.round((cur-prevHeld)/86400000)>1)meetDay=1;else meetDay++;dayNoByDate.set(d,meetDay);prevHeld=cur;}
+ for(const row of rows)row.開催日目=dayNoByDate.get(String(row.日付))??'';
  rows.sort((x,y)=>String(x.日付).localeCompare(String(y.日付))||Number(x.R)-Number(y.R));
  const headers=['日付','R','開催日目','取得状態','取得エラー','1着艇','2着艇','3着艇','4着艇','5着艇','6着艇','1コース艇','2コース艇','3コース艇','4コース艇','5コース艇','6コース艇','1コースST','2コースST','3コースST','4コースST','5コースST','6コースST','決まり手','風向','風速(m/s)','波高(cm)','気温(℃)','水温(℃)','天候','異常・返還','備考'];
  const aoa=[headers,...rows.map(x=>[x.日付,x.R,x.開催日目,x.取得状態,x.取得エラー,...[1,2,3,4,5,6].map(n=>x[`${n}着艇`]??''),...[1,2,3,4,5,6].map(n=>x[`${n}コース艇`]??''),...[1,2,3,4,5,6].map(n=>x[`${n}コースST`]??''),x.決まり手??'',x.風向??'',x.風速_m_s??'',x.波高_cm??'',x.気温_C??'',x.水温_C??'',x.天候??'',x.異常_返還??'',x.備考??''])];
  const wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(aoa);ws['!autofilter']={ref:`A1:AF${Math.max(1,aoa.length)}`};ws['!freeze']={xSplit:0,ySplit:1};XLSX.utils.book_append_sheet(wb,ws,'RAW_場特性');
- const spec=[['項目','内容'],['対象','住之江(12)・場特性のみ'],['選手情報','取得しない'],['期間','1か月単位〜最大6か月'],['基本単位','1行＝1レース'],['主な取得','着順／本番進入／本番ST／決まり手／風向／風速／波高／気温／水温／天候／異常・返還'],['①・②-A','別管理・再取得しない']];XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(spec),'項目説明');
- XLSX.writeFile(wb,`住之江データ_${start.replace('-','')}_${months}か月.xlsx`);
- $('status').textContent=`🏁 住之江・場特性 完了🔥 開催${held}日 ｜ ${rows.filter(x=>x.取得状態==='OK').length}R OK / CANCELLED ${cancelled}R / FAILED ${failed}R ｜ Excel出力済み`;
+ const spec=[['項目','内容'],['対象',`${venueName}(${JCD})・場特性のみ`],['選手情報','取得しない'],['期間','1か月単位〜最大6か月'],['基本単位','1行＝1レース'],['主な取得','着順／本番進入／本番ST／決まり手／風向／風速／波高／気温／水温／天候／異常・返還'],['①・②-A','別管理・再取得しない']];XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(spec),'項目説明');
+ XLSX.writeFile(wb,`${venueName}データ_${start.replace('-','')}_${months}か月.xlsx`);
+ $('status').textContent=`🏁 ${venueName}・場特性 完了🔥 開催${held}日 ｜ ${rows.filter(x=>x.取得状態==='OK').length}R OK / CANCELLED ${cancelled}R / FAILED ${failed}R ｜ Excel出力済み`;
 }
 $('dataPeriod').onclick=async()=>{
  const sel=selectedDataSteps();

@@ -10,6 +10,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 .check{display:flex;gap:8px;align-items:center;background:#101d2d;padding:10px;border-radius:10px}
 .check input{width:auto}.preset{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 @media(max-width:600px){.checks,.preset{grid-template-columns:repeat(2,1fr)}}
+.venueResearch{display:none;border:1px solid #36506c;border-radius:12px;padding:12px;margin:10px 0;background:#071421}.venueResearch.show{display:block}.venueResearch .grid{grid-template-columns:1fr 1fr}.venueTag{font-weight:800;color:#7dd3fc;margin-bottom:8px}
 </style></head><body><div class="wrap">
 <a class="homeLink" href="index.html">← メインに戻る</a>
 <h1>🚤 キョウ君 BOATRACE AI</h1><div class="sub">DATA SYSTEM v3.0｜月間取得 完全性チェック＋CANCELLED/FAILED固定行</div>
@@ -32,6 +33,16 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <label class="check"><input id="d5" type="checkbox">⑤ 直前</label>
 <label class="check"><input id="d6" type="checkbox">⑥ 風向・潮汐</label>
 <label class="check"><input id="dy" type="checkbox" checked>結果・正解Y</label>
+<label class="check"><input id="dvenue" type="checkbox">🏁 場特性</label>
+</div>
+<div id="venueResearch" class="venueResearch">
+<div class="venueTag">🏁 住之江攻略・場特性専用</div>
+<div class="note">選手情報・①・②-Aは取得しません。結果／本番進入／本番ST／決まり手／風向・風速／波高／気温／水温／天候／異常・返還だけを1つのExcelにまとめます。</div>
+<div class="grid" style="margin-top:10px">
+<div><label>開始月</label><input id="venueStartMonth" type="month"></div>
+<div><label>期間（最大6か月）</label><select id="venueMonths"><option value="1">1か月</option><option value="2">2か月</option><option value="3">3か月</option><option value="4">4か月</option><option value="5">5か月</option><option value="6">6か月</option></select></div>
+</div>
+<div class="note">対象場：12 住之江（まず1場攻略用）</div>
 </div>
 <div class="preset">
 <button id="preset12" class="secondary">①＋②＋結果</button>
@@ -148,18 +159,20 @@ const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_t
 // ============================================================
 // DATA SYSTEM v2 — STEP-selective research export
 // ============================================================
-const dataIds=['d1','d2','d3','d4','d5','d6','dy'];
+const dataIds=['d1','d2','d3','d4','d5','d6','dy','dvenue'];
 function selectedDataSteps(){return Object.fromEntries(dataIds.map(id=>[id,$(id).checked]))}
 function updateDataPlan(){
  const s=selectedDataSteps(), names=[];
  if(s.d1)names.push('①全国共通'); if(s.d2)names.push('②場別'); if(s.d3)names.push('③節');
- if(s.d4)names.push('④当日'); if(s.d5)names.push('⑤直前'); if(s.d6)names.push('⑥風向・潮汐'); if(s.dy)names.push('結果');
+ if(s.d4)names.push('④当日'); if(s.d5)names.push('⑤直前'); if(s.d6)names.push('⑥風向・潮汐'); if(s.dy)names.push('結果'); if(s.dvenue)names.push('🏁場特性');
  $('dataPlan').textContent='現在：'+(names.join('＋')||'未選択');
+ $('venueResearch').classList.toggle('show',!!s.dvenue);
 }
 dataIds.forEach(id=>$(id).addEventListener('change',updateDataPlan));
+{const d=new Date();d.setMonth(d.getMonth()-1);$('venueStartMonth').value=d.toISOString().slice(0,7)}
 $('preset12').onclick=()=>{dataIds.forEach(id=>$(id).checked=['d1','d2','dy'].includes(id));updateDataPlan()};
 $('presetResult').onclick=()=>{dataIds.forEach(id=>$(id).checked=id==='dy');updateDataPlan()};
-$('presetAll').onclick=()=>{dataIds.forEach(id=>$(id).checked=true);updateDataPlan()};
+$('presetAll').onclick=()=>{dataIds.forEach(id=>$(id).checked=id!=='dvenue');updateDataPlan()};
 
 async function getResearchPack(date,jcd,rno,sel){
  const needsRace=sel.d1||sel.d2||sel.d3;
@@ -329,9 +342,47 @@ function exportResearchExcel(packs,sel){
  const ds=[...new Set(packs.map(x=>x.date))].sort();
  XLSX.writeFile(wb,`kyokun_v2_data_${ds[0]||'data'}${ds.length>1?'-'+ds.at(-1):''}.xlsx`);
 }
+async function exportVenueResearchExcel(){
+ if(typeof XLSX==='undefined')throw new Error('Excelライブラリを読み込めませんでした');
+ const start=$('venueStartMonth').value, months=Number($('venueMonths').value||1), JCD='12';
+ if(!start)throw new Error('場特性の開始月を選んでください');
+ const [yy,mm]=start.split('-').map(Number), a=new Date(yy,mm-1,1), b=new Date(yy,mm-1+months,0);
+ const days=[];for(let d=new Date(a);d<=b;d.setDate(d.getDate()+1))days.push(d.toLocaleDateString('sv-SE').replaceAll('-',''));
+ const rows=[];let held=0,done=0,failed=0,cancelled=0;
+ async function heldSuminoe(date){
+  const seen=new Map();for(let k=0;k<3;k++){try{for(const v of await getHeldVenues(date))if(v?.jcd)seen.set(String(v.jcd),v)}catch{}if(k<2)await sleep(250*(k+1))}return seen.has(JCD);
+ }
+ for(const date of days){
+  $('status').textContent=`🏁 場特性：住之江開催確認 ${++done}/${days.length}日 ${date}`;$('bar').style.width=`${Math.round(done/days.length*100)}%`;
+  if(!(await heldSuminoe(date)))continue;held++;
+  const jobs=Array.from({length:12},(_,i)=>i+1);let next=0;
+  async function worker(){while(true){const i=next++;if(i>=jobs.length)return;const rno=jobs[i];let result=null,lastErr='';
+    for(let t=0;t<4;t++){try{const z=await fetchJson(`/api/result?date=${date}&jcd=${JCD}&rno=${rno}`);if(z?.ok){result=z;break}lastErr=z?.error||z?.message||'取得失敗'}catch(e){lastErr=e.message}if(t<3)await sleep(250*(t+1))}
+    if(!result){const isCancel=/結果がまだ確定していません|レース中止|中止順延|開催中止|不成立/.test(lastErr);if(isCancel)cancelled++;else failed++;rows.push({日付:date,R:rno,取得状態:isCancel?'CANCELLED':'FAILED',取得エラー:lastErr});continue}
+    const startInfo=[...(result.startInfo||[])].sort((x,y)=>Number(x.course)-Number(y.course));
+    const finish=[...(result.finish||[])].filter(x=>Number.isFinite(Number(x.finish))).sort((x,y)=>Number(x.finish)-Number(y.finish));
+    const row={日付:date,R:rno,開催日目:'',取得状態:'OK',取得エラー:''};
+    for(let n=1;n<=6;n++){row[`${n}着艇`]=finish.find(x=>Number(x.finish)===n)?.lane??'';row[`${n}コース艇`]=startInfo.find(x=>Number(x.course)===n)?.lane??'';row[`${n}コースST`]=startInfo.find(x=>Number(x.course)===n)?.st??''}
+    Object.assign(row,{決まり手:result.winningMethod??'',風向:result.weather?.windDirection??'',風速_m_s:result.weather?.windSpeed??'',波高_cm:result.weather?.waveHeight??'',気温_C:result.weather?.airTemperature??'',水温_C:result.weather?.waterTemperature??'',天候:result.weather?.weather??'',異常_返還:[result.refundText,result.remarksText,result.stableBoard?'安定板使用':''].filter(Boolean).join(' / '),備考:''});rows.push(row);
+  }}
+  await Promise.all(Array.from({length:6},()=>worker()));
+ }
+ rows.sort((x,y)=>String(x.日付).localeCompare(String(y.日付))||Number(x.R)-Number(y.R));
+ const headers=['日付','R','開催日目','取得状態','取得エラー','1着艇','2着艇','3着艇','4着艇','5着艇','6着艇','1コース艇','2コース艇','3コース艇','4コース艇','5コース艇','6コース艇','1コースST','2コースST','3コースST','4コースST','5コースST','6コースST','決まり手','風向','風速(m/s)','波高(cm)','気温(℃)','水温(℃)','天候','異常・返還','備考'];
+ const aoa=[headers,...rows.map(x=>[x.日付,x.R,x.開催日目,x.取得状態,x.取得エラー,...[1,2,3,4,5,6].map(n=>x[`${n}着艇`]??''),...[1,2,3,4,5,6].map(n=>x[`${n}コース艇`]??''),...[1,2,3,4,5,6].map(n=>x[`${n}コースST`]??''),x.決まり手??'',x.風向??'',x.風速_m_s??'',x.波高_cm??'',x.気温_C??'',x.水温_C??'',x.天候??'',x.異常_返還??'',x.備考??''])];
+ const wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(aoa);ws['!autofilter']={ref:`A1:AF${Math.max(1,aoa.length)}`};ws['!freeze']={xSplit:0,ySplit:1};XLSX.utils.book_append_sheet(wb,ws,'RAW_場特性');
+ const spec=[['項目','内容'],['対象','住之江(12)・場特性のみ'],['選手情報','取得しない'],['期間','1か月単位〜最大6か月'],['基本単位','1行＝1レース'],['主な取得','着順／本番進入／本番ST／決まり手／風向／風速／波高／気温／水温／天候／異常・返還'],['①・②-A','別管理・再取得しない']];XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(spec),'項目説明');
+ XLSX.writeFile(wb,`住之江データ_${start.replace('-','')}_${months}か月.xlsx`);
+ $('status').textContent=`🏁 住之江・場特性 完了🔥 開催${held}日 ｜ ${rows.filter(x=>x.取得状態==='OK').length}R OK / CANCELLED ${cancelled}R / FAILED ${failed}R ｜ Excel出力済み`;
+}
 $('dataPeriod').onclick=async()=>{
  const sel=selectedDataSteps();
  if(!Object.values(sel).some(Boolean))return alert('取得するSTEPを1つ以上選んでください');
+ if(sel.dvenue){
+   const others=['d1','d2','d3','d4','d5','d6','dy'].some(k=>sel[k]);
+   if(others)return alert('🏁 場特性は単独取得専用です。①〜⑥・結果Yのチェックを外してください。');
+   setBusy(true);try{await exportVenueResearchExcel()}catch(e){$('status').textContent='エラー：'+e.message}finally{setBusy(false)}return;
+ }
  setBusy(true);
  try{
   const selectedCount=[sel.d1,sel.d2,sel.d3,sel.d4,sel.d5,sel.d6,sel.dy].filter(Boolean).length;

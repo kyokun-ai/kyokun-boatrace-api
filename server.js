@@ -1638,6 +1638,12 @@ app.post('/api/v2-base-predict', (req, res) => {
       const step2BCorrection=(step2BPrior!=null&&nationalLanePrior!=null)?v2Logit(step2BPrior)-v2Logit(nationalLanePrior):0;
       const finalScore=step2AScore+step2BCorrection;
       return {lane:r.lane,registration:r.registration,name:r.name,rank:r.rank,
+        // 旧①②画面との互換フィールド（既存UIを壊さない）
+        nationalWinRate:w,currentCourseTrioRate:c,
+        step1Score:step1,
+        step2Correction:step2ACorrection+step2BCorrection,
+        step2Score:finalScore,
+        // v2詳細フィールド
         inputs:{nationalWinRate:w,currentCourseTrioRate:c,localWinRate:lw[i],localQuinellaRate:lq[i],localTrioRate:lt[i]},
         step1:{score:step1,components:{boatAdjustment:boatAdj[r.lane]??0,nationalWinZ:zAbs,nationalWinRaceDiffZ:zWD,currentCourseTrioRaceDiffZ:zC}},
         step2A:{correction:step2ACorrection,score:step2AScore,components:{localWinZ:zLW,localQuinellaZ:zLQ,localTrioZ:zLT}},

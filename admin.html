@@ -388,7 +388,7 @@ async function exportVenueResearchExcel(){
     if(!result){const isCancel=/結果がまだ確定していません|レース中止|中止順延|開催中止|不成立/.test(lastErr);if(isCancel)cancelled++;else failed++;rows.push({日付:date,R:rno,取得状態:isCancel?'CANCELLED':'FAILED',取得エラー:lastErr});continue}
     const startInfo=[...(result.startInfo||[])].sort((x,y)=>Number(x.course)-Number(y.course));
     const allFinish=[...(result.finish||[])];
-    const finish=allFinish.filter(x=>Number.isFinite(Number(x.finish))).sort((x,y)=>Number(x.finish)-Number(y.finish));
+    const finish=allFinish.filter(x=>Number.isInteger(Number(x.finish))&&Number(x.finish)>=1&&Number(x.finish)<=6).sort((x,y)=>Number(x.finish)-Number(y.finish));
     const abnormalFinish=allFinish.filter(x=>!Number.isFinite(Number(x.finish))&&x.finishCode).map(x=>`${x.lane}号艇:${x.finishCode}`);
     // 公式結果表が正常完走レースで1〜5着までしか返さない場合、6艇出走かつ異常着なしなら残り1艇を6着として安全に補完。
     if(finish.length===5&&startInfo.length===6&&abnormalFinish.length===0){

@@ -44,6 +44,8 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <div><label>期間（最大6か月）</label><select id="venueMonths"><option value="1">1か月</option><option value="2">2か月</option><option value="3">3か月</option><option value="4">4か月</option><option value="5">5か月</option><option value="6">6か月</option></select></div>
 </div>
 <div class="note">現在の攻略対象：住之江。今後ここへ24場を順番に追加します。</div>
+<button id="venueSaveFolder" type="button" class="secondary">📁 Excel保存先を選択</button>
+<div class="note" id="venueSaveFolderStatus">保存先：未選択（未選択時は通常のダウンロード）</div>
 </div>
 <div class="preset">
 <button id="preset12" class="secondary">①＋②＋結果</button>
@@ -58,6 +60,29 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <div id="bt" class="result hidden"><h2>🧪 バックテスト結果</h2><div class="kpis" id="kpis"></div><button id="excel" class="secondary">📥 全結果をExcelに出力</button><div class="tablewrap"><table><thead><tr><th>日付</th><th>場</th><th>R</th><th>○本命3点</th><th>結果</th><th>判定</th><th>払戻</th></tr></thead><tbody id="btrows"></tbody></table></div></div>
 </div><script>
 const $=id=>document.getElementById(id),sleep=ms=>new Promise(r=>setTimeout(r,ms));const today=new Date();$('date').value=today.toLocaleDateString('sv-SE');$('from').value=$('date').value;$('to').value=$('date').value;
+let venueSaveDirHandle=null;
+$('venueSaveFolder').onclick=async()=>{
+ try{
+  if(!window.showDirectoryPicker)return alert('このブラウザでは保存先フォルダの直接指定に対応していません。Excelは通常のダウンロード先へ保存されます。');
+  venueSaveDirHandle=await window.showDirectoryPicker({mode:'readwrite'});
+  $('venueSaveFolderStatus').textContent=`保存先：${venueSaveDirHandle.name}（この画面を開いている間有効）`;
+ }catch(e){if(e?.name!=='AbortError')alert('保存先を選択できませんでした：'+e.message)}
+};
+async function saveVenueWorkbook(wb,filename){
+ if(venueSaveDirHandle){
+  try{
+   const permission=await venueSaveDirHandle.requestPermission({mode:'readwrite'});
+   if(permission==='granted'){
+    const fh=await venueSaveDirHandle.getFileHandle(filename,{create:true});
+    const writable=await fh.createWritable();
+    const bytes=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+    await writable.write(bytes);await writable.close();
+    return `選択フォルダ「${venueSaveDirHandle.name}」へ保存済み`;
+   }
+  }catch(e){console.warn('direct folder save failed; falling back to download',e)}
+ }
+ XLSX.writeFile(wb,filename);return '通常のダウンロード先へ保存済み';
+}
 const venues={'01':'桐生','02':'戸田','03':'江戸川','04':'平和島','05':'多摩川','06':'浜名湖','07':'蒲郡','08':'常滑','09':'津','10':'三国','11':'びわこ','12':'住之江','13':'尼崎','14':'鳴門','15':'丸亀','16':'児島','17':'宮島','18':'徳山','19':'下関','20':'若松','21':'芦屋','22':'福岡','23':'唐津','24':'大村'};
 for(const [c,n] of Object.entries(venues)){const o=document.createElement('option');o.value=c;o.textContent=`${c} ${n}`;$('jcd').appendChild(o)}for(let i=1;i<=12;i++){const o=document.createElement('option');o.value=i;o.textContent=i+'R';$('rno').appendChild(o)}
 let lastBacktest=[];const buttons=['backtest','dayall','periodall'];
@@ -365,6 +390,13 @@ async function exportVenueResearchExcel(){
     const allFinish=[...(result.finish||[])];
     const finish=allFinish.filter(x=>Number.isFinite(Number(x.finish))).sort((x,y)=>Number(x.finish)-Number(y.finish));
     const abnormalFinish=allFinish.filter(x=>!Number.isFinite(Number(x.finish))&&x.finishCode).map(x=>`${x.lane}号艇:${x.finishCode}`);
+    // 公式結果表が正常完走レースで1〜5着までしか返さない場合、6艇出走かつ異常着なしなら残り1艇を6着として安全に補完。
+    if(finish.length===5&&startInfo.length===6&&abnormalFinish.length===0){
+      const placed=new Set(finish.map(x=>Number(x.lane)));
+      const remaining=[...new Set(startInfo.map(x=>Number(x.lane)))].filter(l=>l>=1&&l<=6&&!placed.has(l));
+      if(remaining.length===1)finish.push({finish:6,lane:remaining[0],derived:true});
+    }
+    finish.sort((x,y)=>Number(x.finish)-Number(y.finish));
     const row={日付:date,R:rno,開催日目:'',取得状態:'OK',取得エラー:''};
     for(let n=1;n<=6;n++){row[`${n}着艇`]=finish.find(x=>Number(x.finish)===n)?.lane??'';row[`${n}コース艇`]=startInfo.find(x=>Number(x.course)===n)?.lane??'';row[`${n}コースST`]=startInfo.find(x=>Number(x.course)===n)?.st??''}
     const abnormalParts=[...abnormalFinish,result.refundText,result.remarksText,result.stableBoard?'安定板使用':''].filter(Boolean);
@@ -384,8 +416,9 @@ async function exportVenueResearchExcel(){
  const aoa=[headers,...rows.map(x=>[x.日付,x.R,x.開催日目,x.取得状態,x.取得エラー,...[1,2,3,4,5,6].map(n=>x[`${n}着艇`]??''),...[1,2,3,4,5,6].map(n=>x[`${n}コース艇`]??''),...[1,2,3,4,5,6].map(n=>x[`${n}コースST`]??''),x.決まり手??'',x.風向??'',x.風速_m_s??'',x.波高_cm??'',x.気温_C??'',x.水温_C??'',x.天候??'',x.異常_返還??'',x.備考??''])];
  const wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(aoa);ws['!autofilter']={ref:`A1:AF${Math.max(1,aoa.length)}`};ws['!freeze']={xSplit:0,ySplit:1};XLSX.utils.book_append_sheet(wb,ws,'RAW_場特性');
  const spec=[['項目','内容'],['対象',`${venueName}(${JCD})・場特性のみ`],['選手情報','取得しない'],['期間','1か月単位〜最大6か月'],['基本単位','1行＝1レース'],['主な取得','着順／本番進入／本番ST／決まり手／風向／風速／波高／気温／水温／天候／異常・返還'],['①・②-A','別管理・再取得しない']];XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(spec),'項目説明');
- XLSX.writeFile(wb,`${venueName}データ_${start.replace('-','')}_${months}か月.xlsx`);
- $('status').textContent=`🏁 ${venueName}・場特性 完了🔥 開催${held}日 ｜ ${rows.filter(x=>x.取得状態==='OK').length}R OK / CANCELLED ${cancelled}R / FAILED ${failed}R ｜ Excel出力済み`;
+ const filename=`${venueName}データ_${start.replace('-','')}_${months}か月.xlsx`;
+ const saveMsg=await saveVenueWorkbook(wb,filename);
+ $('status').textContent=`🏁 ${venueName}・場特性 完了🔥 開催${held}日 ｜ ${rows.filter(x=>x.取得状態==='OK').length}R OK / CANCELLED ${cancelled}R / FAILED ${failed}R ｜ ${saveMsg}`;
 }
 $('dataPeriod').onclick=async()=>{
  const sel=selectedDataSteps();

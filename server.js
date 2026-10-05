@@ -1587,35 +1587,71 @@ app.post('/api/predict', (req, res) => {
 
 
 // ============================================================
-// v2正式基盤：①全国共通 → ②場別（補正なし）
-// 既存研究用 /api/predict とは完全分離。
+// v2正式試用基盤：①全国共通 → ②-A当地成績 → ②-B場×枠
+// ③④⑤・展示・オッズは使用しない。
 // ============================================================
+const V2_B_PRIOR = {"01-1":{"p":0.5262045539682702,"base":0.5550718328254245},"01-2":{"p":0.16087591499529214,"base":0.1417065737919025},"01-3":{"p":0.1315416468396594,"base":0.1262516325642142},"01-4":{"p":0.08563621913314637,"base":0.09229429690901175},"01-5":{"p":0.0598265179050531,"base":0.05790161079669134},"01-6":{"p":0.035915147158578936,"base":0.02677405311275577},"02-1":{"p":0.5012046055388405,"base":0.5550718328254245},"02-2":{"p":0.16707567859105502,"base":0.1417065737919025},"02-3":{"p":0.12470802462024085,"base":0.1262516325642142},"02-4":{"p":0.10411910862248795,"base":0.09229429690901175},"02-5":{"p":0.06927475915535894,"base":0.05790161079669134},"02-6":{"p":0.03361782347201676,"base":0.02677405311275577},"03-1":{"p":0.5229958330741962,"base":0.5550718328254245},"03-2":{"p":0.13607478254688904,"base":0.1417065737919025},"03-3":{"p":0.14349573090010928,"base":0.1262516325642142},"03-4":{"p":0.0955583147494958,"base":0.09229429690901175},"03-5":{"p":0.06780694428402619,"base":0.05790161079669134},"03-6":{"p":0.034068394445283555,"base":0.02677405311275577},"04-1":{"p":0.4816167541186445,"base":0.5550718328254245},"04-2":{"p":0.15879293357468552,"base":0.1417065737919025},"04-3":{"p":0.1664482276653759,"base":0.1262516325642142},"04-4":{"p":0.09068120889947988,"base":0.09229429690901175},"04-5":{"p":0.07257979515615333,"base":0.05790161079669134},"04-6":{"p":0.029881080585660934,"base":0.02677405311275577},"05-1":{"p":0.5631176788903853,"base":0.5550718328254245},"05-2":{"p":0.14565727747285162,"base":0.1417065737919025},"05-3":{"p":0.1290895479272029,"base":0.1262516325642142},"05-4":{"p":0.08985714808832326,"base":0.09229429690901175},"05-5":{"p":0.04107551906387445,"base":0.05790161079669134},"05-6":{"p":0.03120282855736251,"base":0.02677405311275577},"06-1":{"p":0.5524664106523911,"base":0.5550718328254245},"06-2":{"p":0.1389803446505895,"base":0.1417065737919025},"06-3":{"p":0.12084482484103028,"base":0.1262516325642142},"06-4":{"p":0.09836025417340756,"base":0.09229429690901175},"06-5":{"p":0.05519263979370401,"base":0.05790161079669134},"06-6":{"p":0.03415552588887763,"base":0.02677405311275577},"07-1":{"p":0.5679738221877307,"base":0.5550718328254245},"07-2":{"p":0.12864487706081656,"base":0.1417065737919025},"07-3":{"p":0.12568023508924683,"base":0.1262516325642142},"07-4":{"p":0.08548603092881074,"base":0.09229429690901175},"07-5":{"p":0.06135957108515833,"base":0.05790161079669134},"07-6":{"p":0.030855463648236832,"base":0.02677405311275577},"08-1":{"p":0.5605641225396971,"base":0.5550718328254245},"08-2":{"p":0.143003459890475,"base":0.1417065737919025},"08-3":{"p":0.09802717503379695,"base":0.1262516325642142},"08-4":{"p":0.10647068258369041,"base":0.09229429690901175},"08-5":{"p":0.06731663726141648,"base":0.05790161079669134},"08-6":{"p":0.02461792269092409,"base":0.02677405311275577},"09-1":{"p":0.5926258485302891,"base":0.5550718328254245},"09-2":{"p":0.12116045082958449,"base":0.1417065737919025},"09-3":{"p":0.12789427433528436,"base":0.1262516325642142},"09-4":{"p":0.07513624856898693,"base":0.09229429690901175},"09-5":{"p":0.056898893887357097,"base":0.05790161079669134},"09-6":{"p":0.02628428384849804,"base":0.02677405311275577},"10-1":{"p":0.5681603253601154,"base":0.5550718328254245},"10-2":{"p":0.13712420246370308,"base":0.1417065737919025},"10-3":{"p":0.131748911344069,"base":0.1262516325642142},"10-4":{"p":0.08344179789666416,"base":0.09229429690901175},"10-5":{"p":0.05290571249187215,"base":0.05790161079669134},"10-6":{"p":0.026619050443576233,"base":0.02677405311275577},"11-1":{"p":0.5662996784700841,"base":0.5550718328254245},"11-2":{"p":0.1454007584539289,"base":0.1417065737919025},"11-3":{"p":0.11144656991046467,"base":0.1262516325642142},"11-4":{"p":0.09267195031759604,"base":0.09229429690901175},"11-5":{"p":0.05922969195021269,"base":0.05790161079669134},"11-6":{"p":0.024951350897713626,"base":0.02677405311275577},"12-1":{"p":0.526476842704531,"base":0.5550718328254245},"12-2":{"p":0.14745508355379927,"base":0.1417065737919025},"12-3":{"p":0.14723636180971836,"base":0.1262516325642142},"12-4":{"p":0.10446841197548642,"base":0.09229429690901175},"12-5":{"p":0.04947192826764006,"base":0.05790161079669134},"12-6":{"p":0.02489137168882489,"base":0.02677405311275577},"13-1":{"p":0.5689964796661313,"base":0.5550718328254245},"13-2":{"p":0.14728731628961314,"base":0.1417065737919025},"13-3":{"p":0.1190739795535406,"base":0.1262516325642142},"13-4":{"p":0.10228202452974645,"base":0.09229429690901175},"13-5":{"p":0.04866448741236695,"base":0.05790161079669134},"13-6":{"p":0.013695712548601625,"base":0.02677405311275577},"14-1":{"p":0.5000366494007268,"base":0.5550718328254245},"14-2":{"p":0.14882988458770535,"base":0.1417065737919025},"14-3":{"p":0.14604675130827255,"base":0.1262516325642142},"14-4":{"p":0.10576239638214886,"base":0.09229429690901175},"14-5":{"p":0.08056204632484251,"base":0.05790161079669134},"14-6":{"p":0.018762271996303963,"base":0.02677405311275577},"15-1":{"p":0.5406698955158904,"base":0.5550718328254245},"15-2":{"p":0.13856660861993905,"base":0.1417065737919025},"15-3":{"p":0.13203227035263387,"base":0.1262516325642142},"15-4":{"p":0.09830893556813235,"base":0.09229429690901175},"15-5":{"p":0.06743850674793209,"base":0.05790161079669134},"15-6":{"p":0.022983783195472358,"base":0.02677405311275577},"16-1":{"p":0.5192653042429926,"base":0.5550718328254245},"16-2":{"p":0.14505123739995313,"base":0.1417065737919025},"16-3":{"p":0.1352171310404876,"base":0.1262516325642142},"16-4":{"p":0.10687225812933258,"base":0.09229429690901175},"16-5":{"p":0.05908731288302468,"base":0.05790161079669134},"16-6":{"p":0.034506756304209504,"base":0.02677405311275577},"17-1":{"p":0.5485060371558289,"base":0.5550718328254245},"17-2":{"p":0.12587070091423597,"base":0.1417065737919025},"17-3":{"p":0.13584266967561948,"base":0.1262516325642142},"17-4":{"p":0.10831341679031213,"base":0.09229429690901175},"17-5":{"p":0.05760286265137313,"base":0.05790161079669134},"17-6":{"p":0.023864312812630496,"base":0.02677405311275577},"18-1":{"p":0.6089464518937745,"base":0.5550718328254245},"18-2":{"p":0.12955770979797154,"base":0.1417065737919025},"18-3":{"p":0.10458001612089812,"base":0.1262516325642142},"18-4":{"p":0.08281895886584742,"base":0.09229429690901175},"18-5":{"p":0.05094139148351056,"base":0.05790161079669134},"18-6":{"p":0.023155471837997908,"base":0.02677405311275577},"19-1":{"p":0.6060173004486004,"base":0.5550718328254245},"19-2":{"p":0.11234052923472962,"base":0.1417065737919025},"19-3":{"p":0.11752806117620337,"base":0.1262516325642142},"19-4":{"p":0.08005124832011509,"base":0.09229429690901175},"19-5":{"p":0.053207397172114854,"base":0.05790161079669134},"19-6":{"p":0.030855463648236832,"base":0.02677405311275577},"20-1":{"p":0.5673422273199157,"base":0.5550718328254245},"20-2":{"p":0.14745508355379927,"base":0.1417065737919025},"20-3":{"p":0.11358251565587221,"base":0.1262516325642142},"20-4":{"p":0.09244918120625566,"base":0.09229429690901175},"20-5":{"p":0.056683466729178525,"base":0.05790161079669134},"20-6":{"p":0.022487525534978736,"base":0.02677405311275577},"21-1":{"p":0.6032999091442525,"base":0.5550718328254245},"21-2":{"p":0.1340796596695122,"base":0.1417065737919025},"21-3":{"p":0.0903541481327251,"base":0.1262516325642142},"21-4":{"p":0.08548603092881074,"base":0.09229429690901175},"21-5":{"p":0.053207397172114854,"base":0.05790161079669134},"21-6":{"p":0.033572854952584656,"base":0.02677405311275577},"22-1":{"p":0.5841691503968387,"base":0.5550718328254245},"22-2":{"p":0.15707046816918388,"base":0.1417065737919025},"22-3":{"p":0.12079405411741068,"base":0.1262516325642142},"22-4":{"p":0.07081456582164027,"base":0.09229429690901175},"22-5":{"p":0.04466423595994776,"base":0.05790161079669134},"22-6":{"p":0.022487525534978736,"base":0.02677405311275577},"23-1":{"p":0.5515234064892828,"base":0.5550718328254245},"23-2":{"p":0.144637186611693,"base":0.1417065737919025},"23-3":{"p":0.1259203180619222,"base":0.1262516325642142},"23-4":{"p":0.08992227713897924,"base":0.09229429690901175},"23-5":{"p":0.06463353735050834,"base":0.05790161079669134},"23-6":{"p":0.023363274347614538,"base":0.02677405311275577},"24-1":{"p":0.5866692241710023,"base":0.5550718328254245},"24-2":{"p":0.13698345237222895,"base":0.1417065737919025},"24-3":{"p":0.13180773889317535,"base":0.1262516325642142},"24-4":{"p":0.07786846381634245,"base":0.09229429690901175},"24-5":{"p":0.04846614395875808,"base":0.05790161079669134},"24-6":{"p":0.018204976788492956,"base":0.02677405311275577}};
+const V2_LOCAL_SD = { win:2.04915371, quinella:18.92311134, trio:23.80109755 };
+const V2_LOCAL_BETA = { win:0.07771454, quinella:0.37743058, trio:-0.01690914 };
+const v2Finite = v => Number.isFinite(Number(v)) ? Number(v) : null;
+const v2Mean = a => { const x=a.filter(Number.isFinite); return x.length ? x.reduce((s,v)=>s+v,0)/x.length : null; };
+const v2Logit = p => Math.log(Math.max(1e-9,p)/Math.max(1e-9,1-p));
+const v2Softmax = scores => { const m=Math.max(...scores); const e=scores.map(x=>Math.exp(x-m)); const z=e.reduce((a,b)=>a+b,0); return e.map(x=>x/z); };
+
 app.post('/api/v2-base-predict', (req, res) => {
   try {
-    const race = req.body?.race;
-    if (!race?.ok || !Array.isArray(race.racers) || race.racers.length !== 6) {
+    const race=req.body?.race;
+    if(!race?.ok || !Array.isArray(race.racers) || race.racers.length!==6)
       return res.status(400).json({ok:false,error:'valid six-racer race data is required'});
-    }
+
+    // STEP①: frozen existing implementation.
     const C={wrMean:5.29233035,wrSd:1.32939332,diffMean:0.00237223,diffSd:1.07958259,c3DiffSd:22.87066632};
     const boatAdj={1:0,2:-1.7,3:-1.9,4:-2.0,5:-2.6,6:-3.0};
-    const finite=v=>Number.isFinite(Number(v))?Number(v):null;
-    const wr=race.racers.map(r=>finite(r.national?.winRate));
-    const c3=race.racers.map(r=>finite(r.courseStats?.[String(r.lane)]?.trioRate));
-    const mean=a=>{const v=a.filter(x=>x!==null);return v.length?v.reduce((x,y)=>x+y,0)/v.length:null};
-    const mw=mean(wr), mc=mean(c3);
-    const scored=race.racers.map((r,i)=>{
+    const wr=race.racers.map(r=>v2Finite(r.national?.winRate));
+    const c3=race.racers.map(r=>v2Finite(r.courseStats?.[String(r.lane)]?.trioRate));
+    const mw=v2Mean(wr), mc=v2Mean(c3);
+
+    // STEP②-A: 2026-09 4,594Rで再推定し、2026-08 4,916Rへ固定適用して再現確認。
+    const lw=race.racers.map(r=>v2Finite(r.local?.winRate));
+    const lq=race.racers.map(r=>v2Finite(r.local?.quinellaRate));
+    const lt=race.racers.map(r=>v2Finite(r.local?.trioRate));
+    const mlw=v2Mean(lw), mlq=v2Mean(lq), mlt=v2Mean(lt);
+
+    const rows=race.racers.map((r,i)=>{
       const w=wr[i], c=c3[i];
       const zAbs=w===null?0:(w-C.wrMean)/C.wrSd;
       const zWD=(w===null||mw===null)?0:((w-mw)-C.diffMean)/C.diffSd;
       const zC=(c===null||mc===null)?0:(c-mc)/C.c3DiffSd;
       const step1=(boatAdj[r.lane]??0)+0.16*zAbs+0.68*zWD+0.25*zC;
-      return {lane:r.lane,registration:r.registration,name:r.name,rank:r.rank,nationalWinRate:w,currentCourseTrioRate:c,components:{boatAdjustment:boatAdj[r.lane]??0,nationalWinZ:zAbs,nationalWinRaceDiffZ:zWD,currentCourseTrioRaceDiffZ:zC},step1Score:step1,step2Correction:0,step2Score:step1};
-    }).sort((a,b)=>b.step2Score-a.step2Score);
-    res.json({ok:true,logicVersion:'v2-base-①frozen-②no-correction',date:race.date,jcd:race.jcd,rno:race.rno,venue:race.venue,step1:'confirmed_frozen',step2:'confirmed_no_correction',ranking:scored});
-  } catch(error) {
-    res.status(500).json({ok:false,error:error.message});
-  }
+
+      const zLW=(lw[i]===null||mlw===null)?0:(lw[i]-mlw)/V2_LOCAL_SD.win;
+      const zLQ=(lq[i]===null||mlq===null)?0:(lq[i]-mlq)/V2_LOCAL_SD.quinella;
+      const zLT=(lt[i]===null||mlt===null)?0:(lt[i]-mlt)/V2_LOCAL_SD.trio;
+      const step2ACorrection=V2_LOCAL_BETA.win*zLW+V2_LOCAL_BETA.quinella*zLQ+V2_LOCAL_BETA.trio*zLT;
+      const step2AScore=step1+step2ACorrection;
+
+      const bp=V2_B_PRIOR[`${String(race.jcd).padStart(2,'0')}-${r.lane}`]||null;
+      const step2BPrior=bp?.p??null, nationalLanePrior=bp?.base??null;
+      const step2BDifference=(step2BPrior!=null&&nationalLanePrior!=null)?step2BPrior-nationalLanePrior:null;
+      // 試用ランキングへの接続は、確率差を尺度整合させるため log-odds差で加える。
+      // ②-B正式保存値そのものは prior/difference として別途保持する。
+      const step2BCorrection=(step2BPrior!=null&&nationalLanePrior!=null)?v2Logit(step2BPrior)-v2Logit(nationalLanePrior):0;
+      const finalScore=step2AScore+step2BCorrection;
+      return {lane:r.lane,registration:r.registration,name:r.name,rank:r.rank,
+        inputs:{nationalWinRate:w,currentCourseTrioRate:c,localWinRate:lw[i],localQuinellaRate:lq[i],localTrioRate:lt[i]},
+        step1:{score:step1,components:{boatAdjustment:boatAdj[r.lane]??0,nationalWinZ:zAbs,nationalWinRaceDiffZ:zWD,currentCourseTrioRaceDiffZ:zC}},
+        step2A:{correction:step2ACorrection,score:step2AScore,components:{localWinZ:zLW,localQuinellaZ:zLQ,localTrioZ:zLT}},
+        step2B:{prior:step2BPrior,nationalLanePrior,difference:step2BDifference,correction:step2BCorrection,applied:bp!==null},
+        finalScore};
+    });
+    const probs=v2Softmax(rows.map(x=>x.finalScore)); rows.forEach((x,i)=>x.trialWinProbability=probs[i]);
+    rows.sort((a,b)=>b.finalScore-a.finalScore);
+    res.json({ok:true,logicVersion:'v2-trial-①+②A+②B-20261005',trial:true,oddsUsed:false,stepsIncluded:['①全国共通','②-A当地成績','②-B場×枠'],stepsExcluded:['③節限定','④当日限定','⑤レース限定'],date:race.date,jcd:race.jcd,rno:race.rno,venue:race.venue,
+      notes:['②-A係数は9月4,594Rで再推定し8月4,916Rへ固定適用して再現確認','②-Bは強度200縮小144セル','trialWinProbabilityは①②接続確認用で最終予想確率ではない'],ranking:rows});
+  } catch(error){ res.status(500).json({ok:false,error:error.message}); }
 });
+
+app.get('/v2-test', (req,res)=>res.type('html').send(`<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>キョウ君 v2 試用版</title><style>body{font-family:sans-serif;max-width:980px;margin:auto;padding:18px;background:#f5f7fb;color:#172033}h1{font-size:22px}.box{background:white;border-radius:12px;padding:14px;margin:12px 0;box-shadow:0 2px 10px #0001}select,input,button{font-size:16px;padding:10px;margin:4px}button{font-weight:bold}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:right}th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}.rank1{background:#fff7d6}.muted{color:#667085;font-size:13px}.pos{color:#087a3e}.neg{color:#b42318}</style><h1>キョウ君 BOATRACE AI v2 試用版</h1><div class=box><b>①全国共通 → ②-A当地成績 → ②-B場固有</b><div class=muted>③④⑤・展示・オッズはまだ使いません。</div><input id=d type=date><select id=j>${Object.entries(BOATRACE_VENUES).map(([c,n])=>`<option value="${c}">${c} ${n}</option>`).join('')}</select><select id=r>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}R</option>`).join('')}</select><button onclick="go()">評価する</button><span id=s></span></div><div id=o></div><script>document.getElementById('d').value=new Date().toISOString().slice(0,10);const f=n=>Number(n).toFixed(3),pct=n=>n==null?'-':(n*100).toFixed(1)+'%';async function go(){s.textContent='取得中…';o.innerHTML='';try{let date=d.value.replaceAll('-',''),jcd=j.value,rno=r.value;let race=await fetch('/api/race?date='+date+'&jcd='+jcd+'&rno='+rno+'&includeCourseStats=1&includePreInspection=0').then(x=>x.json());if(!race.ok)throw Error(race.error||'race取得失敗');let z=await fetch('/api/v2-base-predict',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({race})}).then(x=>x.json());if(!z.ok)throw Error(z.error);s.textContent='完了';o.innerHTML='<div class=box><h2>'+z.venue+' '+z.rno+'R</h2><table><tr><th>順位</th><th>艇/選手</th><th>級</th><th>①</th><th>②-A補正</th><th>②-B補正</th><th>②-B事前率</th><th>試用確率</th></tr>'+z.ranking.map((x,i)=>'<tr class="'+(i===0?'rank1':'')+'"><td>'+(i+1)+'</td><td>'+x.lane+'号艇 '+x.name+'</td><td>'+x.rank+'</td><td>'+f(x.step1.score)+'</td><td class="'+(x.step2A.correction>=0?'pos':'neg')+'">'+f(x.step2A.correction)+'</td><td class="'+(x.step2B.correction>=0?'pos':'neg')+'">'+f(x.step2B.correction)+'</td><td>'+pct(x.step2B.prior)+'</td><td><b>'+pct(x.trialWinProbability)+'</b></td></tr>').join('')+'</table><p class=muted>※ 試用確率は①〜②の接続確認用。最終予想・買い目ではありません。</p></div>'}catch(e){s.textContent='エラー';o.innerHTML='<div class=box>'+e.message+'</div>'}}</script></html>`));
 
 // ============================================================
 // STEP3-C 開催場一覧API（日付 → その日に開催している場）

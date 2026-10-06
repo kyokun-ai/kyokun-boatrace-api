@@ -38,10 +38,10 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 </div>
 
 <div id="localResearch" class="venueResearch">
-<div class="venueTag">⑦ 当地成績・高速取得専用</div>
-<div class="note">支部／艇番／当地勝率／当地2連率／当地3連率だけを評価用に取得。日付／競走場／R／実着順は検証用として保存します。開催日だけを抽出し、12Rを並列取得します。</div>
+<div class="venueTag">⑦ 当地成績・全国TURBO取得</div>
+<div class="note">場所指定不要。期間だけ指定すると全国24場を自動巡回します。支部／艇番／当地勝率／当地2連率／当地3連率を取得し、日付／競走場／R／実着順を検証用に保存します。</div>
 <div class="grid" style="margin-top:10px">
-<div><label>対象場</label><select id="localTarget"></select></div>
+<div><label>対象</label><div class="note"><b>全国24場・自動巡回</b>（場所指定不要）</div></div>
 <div><label>開始月</label><input id="localStartMonth" type="month"></div>
 <div><label>期間（最大6か月）</label><select id="localMonths"><option value="1">1か月</option><option value="2">2か月</option><option value="3">3か月</option><option value="4">4か月</option><option value="5">5か月</option><option value="6">6か月</option></select></div>
 </div>
@@ -97,7 +97,7 @@ async function saveVenueWorkbook(wb,filename){
  XLSX.writeFile(wb,filename);return '通常のダウンロード先へ保存済み';
 }
 const venues={'01':'桐生','02':'戸田','03':'江戸川','04':'平和島','05':'多摩川','06':'浜名湖','07':'蒲郡','08':'常滑','09':'津','10':'三国','11':'びわこ','12':'住之江','13':'尼崎','14':'鳴門','15':'丸亀','16':'児島','17':'宮島','18':'徳山','19':'下関','20':'若松','21':'芦屋','22':'福岡','23':'唐津','24':'大村'};
-for(const [c,n] of Object.entries(venues)){const o=document.createElement('option');o.value=c;o.textContent=`${c} ${n}`;$('jcd').appendChild(o);const q=o.cloneNode(true);$('localTarget').appendChild(q)}for(let i=1;i<=12;i++){const o=document.createElement('option');o.value=i;o.textContent=i+'R';$('rno').appendChild(o)}
+for(const [c,n] of Object.entries(venues)){const o=document.createElement('option');o.value=c;o.textContent=`${c} ${n}`;$('jcd').appendChild(o)}for(let i=1;i<=12;i++){const o=document.createElement('option');o.value=i;o.textContent=i+'R';$('rno').appendChild(o)}
 let lastBacktest=[];const buttons=['backtest','dayall','periodall'];
 function ymd(v){return String(v||'').replaceAll('-','')}function isoFromYmd(s){return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`}
 async function getPrediction(date,jcd,rno){const [rr,br]=await Promise.all([fetch(`/api/race?date=${date}&jcd=${jcd}&rno=${rno}`),fetch(`/api/beforeinfo?date=${date}&jcd=${jcd}&rno=${rno}`)]);const race=await rr.json(),before=await br.json();if(!race.ok)throw new Error(race.error||race.status||'出走データ取得失敗');if(!before.ok)throw new Error(before.message||before.error||'直前情報取得失敗');const pr=await fetch('/api/predict',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({race,before})});const p=await pr.json();if(!p.ok)throw new Error(p.error||'予想失敗');return {race,before,p}}
@@ -383,53 +383,48 @@ function exportResearchExcel(packs,sel){
 }
 async function exportLocalResearchExcel(){
  if(typeof XLSX==='undefined')throw new Error('Excelライブラリを読み込めませんでした');
- const start=$('localStartMonth').value,months=Number($('localMonths').value||1),JCD=$('localTarget').value,venueName=venues[JCD]||JCD;
+ const start=$('localStartMonth').value,months=Number($('localMonths').value||1);
  if(!start)throw new Error('⑦の開始月を選んでください');
  const [yy,mm]=start.split('-').map(Number),a=new Date(yy,mm-1,1),b=new Date(yy,mm-1+months,0);
  const days=[];for(let d=new Date(a);d<=b;d.setDate(d.getDate()+1))days.push(d.toLocaleDateString('sv-SE').replaceAll('-',''));
- const heldDates=[];let checked=0;
- // 場特性と同じ方式：まず軽い開催一覧だけで対象場の開催日を絞る。
+
+ // TURBO: 開催判定は「場×日」ではなく「日」につき1回だけ。返った開催場をそのまま全国処理へ回す。
+ const schedule=[];let checked=0,discoveryFailed=0;
  for(const date of days){
-   $('status').textContent=`⑦ ${venueName}：開催確認 ${++checked}/${days.length}日 ${date}`;$('bar').style.width=`${Math.round(checked/days.length*20)}%`;
-   try{const vs=await getHeldVenues(date);if(vs.some(v=>String(v.jcd)===JCD))heldDates.push(date)}catch(e){await sleep(150);try{const vs=await getHeldVenues(date);if(vs.some(v=>String(v.jcd)===JCD))heldDates.push(date)}catch{}}
+   $('status').textContent=`⑦ TURBO 全国：開催確認 ${++checked}/${days.length}日 ${date}`;$('bar').style.width=`${Math.round(checked/days.length*10)}%`;
+   let vs=null;
+   for(let t=0;t<3&&!vs;t++)try{vs=await getHeldVenues(date)}catch(e){if(t<2)await sleep(150*(t+1))}
+   if(!vs){discoveryFailed++;continue}
+   const seen=new Set();
+   for(const v of vs){const j=String(v.jcd||'').padStart(2,'0');if(venues[j]&&!seen.has(j)){seen.add(j);schedule.push({date,jcd:j})}}
  }
- const rows=[];let done=0,failed=0,cancelled=0;
- // 開催日ごとに12Rを最大12並列。/api/race 1回で6艇分の⑦情報を取得。
- for(const date of heldDates){
-   const jobs=Array.from({length:12},(_,i)=>i+1);
-   const packs=await Promise.all(jobs.map(async rno=>{
-     let last='';
-     for(let t=0;t<3;t++){
-       try{
-         const [race,result]=await Promise.all([
-           fetchJson(`/api/race?date=${date}&jcd=${JCD}&rno=${rno}&includeCourseStats=0&includePreInspection=0`),
-           fetchJson(`/api/result?date=${date}&jcd=${JCD}&rno=${rno}`)
-         ]);
-         if(race?.ok&&result?.ok)return {rno,race,result};
-         last=race?.error||result?.error||result?.message||'取得失敗';
-       }catch(e){last=e.message}
-       if(t<2)await sleep(200*(t+1));
-     }
-     return {rno,error:last};
-   }));
-   for(const p of packs){
-     done++;
-     if(p.error){const isCancel=/結果がまだ確定していません|レース中止|中止順延|開催中止|不成立/.test(p.error);if(isCancel)cancelled++;else failed++;continue}
-     const finish=new Map();for(const f of (p.result.finish||[])){const lane=Number(f.lane),pos=Number(f.finish);if(lane>=1&&lane<=6&&pos>=1&&pos<=6)finish.set(lane,pos)}
-     // 正常6艇で公式結果が5着までの場合のみ残りを6着補完。
-     if(finish.size===5&&(p.race.racers||[]).length===6){const rem=(p.race.racers||[]).map(r=>Number(r.lane)).filter(l=>!finish.has(l));if(rem.length===1)finish.set(rem[0],6)}
-     for(const r of (p.race.racers||[]))rows.push({日付:date,競走場コード:JCD,競走場:venueName,R:p.rno,支部:r.branch??'',艇番:r.lane??'',当地勝率:r.local?.winRate??'',当地2連率:r.local?.quinellaRate??'',当地3連率:r.local?.trioRate??'',実着順:finish.get(Number(r.lane))??''});
-   }
-   const base=20,span=80;$('bar').style.width=`${Math.round(base+(done/(Math.max(1,heldDates.length)*12))*span)}%`;
-   $('status').textContent=`⑦ ${venueName} 高速取得中：開催${heldDates.indexOf(date)+1}/${heldDates.length}日 ｜ ${rows.length}艇`;
+
+ // ⑦本体と正解Yを分離。まず /api/race だけを取り切る。
+ const racePacks=[];let raceDone=0,raceFailed=0;
+ const tasks=[];for(const x of schedule)for(let rno=1;rno<=12;rno++)tasks.push({...x,rno});
+ const CONC=24;
+ async function workerRace(){
+   while(tasks.length){const t=tasks.shift();let race=null,last='';for(let k=0;k<3;k++){try{race=await fetchJson(`/api/race?date=${t.date}&jcd=${t.jcd}&rno=${t.rno}&includeCourseStats=0&includePreInspection=0`);if(race?.ok)break;last=race?.error||'取得失敗'}catch(e){last=e.message}if(k<2)await sleep(120*(k+1))}raceDone++;if(race?.ok)racePacks.push({...t,race});else raceFailed++;if(raceDone%12===0){$('status').textContent=`⑦ TURBO 全国：当地成績 ${raceDone}/${Math.max(1,raceDone+tasks.length)}R ｜ ${racePacks.length}R OK`;$('bar').style.width=`${10+Math.round((raceDone/Math.max(1,raceDone+tasks.length))*60)}%`}}
  }
- rows.sort((x,y)=>String(x.日付).localeCompare(String(y.日付))||Number(x.R)-Number(y.R)||Number(x.艇番)-Number(y.艇番));
+ await Promise.all(Array.from({length:Math.min(CONC,Math.max(1,tasks.length))},()=>workerRace()));
+
+ // 正解Yは後段で取得。⑦取得済みデータを再取得しない。
+ const resultMap=new Map();let resultDone=0,resultFailed=0,cancelled=0;
+ const rtasks=racePacks.map(x=>({date:x.date,jcd:x.jcd,rno:x.rno}));
+ async function workerResult(){
+   while(rtasks.length){const t=rtasks.shift(),key=`${t.date}-${t.jcd}-${t.rno}`;let rr=null,last='';for(let k=0;k<3;k++){try{rr=await fetchJson(`/api/result?date=${t.date}&jcd=${t.jcd}&rno=${t.rno}`);if(rr?.ok)break;last=rr?.error||rr?.message||'取得失敗'}catch(e){last=e.message}if(k<2)await sleep(120*(k+1))}resultDone++;if(rr?.ok)resultMap.set(key,rr);else if(/結果がまだ確定していません|レース中止|中止順延|開催中止|不成立/.test(last))cancelled++;else resultFailed++;if(resultDone%12===0){$('status').textContent=`⑦ TURBO 全国：正解Y ${resultDone}/${Math.max(1,resultDone+rtasks.length)}R`;$('bar').style.width=`${70+Math.round((resultDone/Math.max(1,resultDone+rtasks.length))*30)}%`}}
+ }
+ await Promise.all(Array.from({length:Math.min(CONC,Math.max(1,rtasks.length))},()=>workerResult()));
+
+ const rows=[];
+ for(const p of racePacks){const rr=resultMap.get(`${p.date}-${p.jcd}-${p.rno}`),finish=new Map();if(rr)for(const f of (rr.finish||[])){const lane=Number(f.lane),pos=Number(f.finish);if(lane>=1&&lane<=6&&pos>=1&&pos<=6)finish.set(lane,pos)}if(finish.size===5&&(p.race.racers||[]).length===6){const rem=(p.race.racers||[]).map(r=>Number(r.lane)).filter(l=>!finish.has(l));if(rem.length===1)finish.set(rem[0],6)}for(const r of (p.race.racers||[]))rows.push({日付:p.date,競走場コード:p.jcd,競走場:venues[p.jcd]||p.jcd,R:p.rno,支部:r.branch??'',艇番:r.lane??'',当地勝率:r.local?.winRate??'',当地2連率:r.local?.quinellaRate??'',当地3連率:r.local?.trioRate??'',実着順:finish.get(Number(r.lane))??''})}
+ rows.sort((x,y)=>String(x.日付).localeCompare(String(y.日付))||String(x.競走場コード).localeCompare(String(y.競走場コード)||'')||Number(x.R)-Number(y.R)||Number(x.艇番)-Number(y.艇番));
  const headers=['日付','競走場コード','競走場','R','支部','艇番','当地勝率','当地2連率','当地3連率','実着順'];
  const aoa=[headers,...rows.map(x=>headers.map(h=>x[h]??''))];
  const wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(aoa);ws['!autofilter']={ref:`A1:J${Math.max(1,aoa.length)}`};ws['!freeze']={xSplit:0,ySplit:1};XLSX.utils.book_append_sheet(wb,ws,'⑦当地成績_RAW');
- const spec=[['項目','内容'],['対象',`${venueName}(${JCD})・⑦当地成績`],['評価用5項目','支部／艇番／当地勝率／当地2連率／当地3連率'],['検証識別','日付／競走場／R／実着順'],['期間','1〜6か月'],['高速化','開催日を先に抽出→開催日の12Rを並列取得'],['欠損','公式「-」は空欄。0へ変換しない'],['既存STEP','①〜⑥・Yは再取得しない']];XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(spec),'項目説明');
- const filename=`⑦当地成績_${venueName}_${start.replace('-','')}_${months}か月.xlsx`;XLSX.writeFile(wb,filename);
- $('status').textContent=`⑦ ${venueName} 完了🔥 開催${heldDates.length}日 ｜ ${rows.length}艇 ｜ CANCELLED ${cancelled}R / FAILED ${failed}R`;
+ const spec=[['項目','内容'],['対象','全国24場・⑦当地成績'],['評価用5項目','支部／艇番／当地勝率／当地2連率／当地3連率'],['検証識別','日付／競走場／R／実着順'],['期間','1〜6か月'],['TURBO①','開催判定は1日1回。開催中の全場を自動巡回'],['TURBO②','⑦本体(/api/race)を先に取得し、正解Y(/api/result)は後段で結合'],['TURBO③','開催なしの場×日を総当たりしない'],['TURBO④','正常取得済み⑦を結果取得時に再取得しない'],['欠損','公式「-」は空欄。0へ変換しない'],['既存STEP','①〜⑥は再取得しない']];XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(spec),'項目説明');
+ const filename=`⑦当地成績_全国_${start.replace('-','')}_${months}か月_TURBO.xlsx`;XLSX.writeFile(wb,filename);$('bar').style.width='100%';
+ $('status').textContent=`⑦ TURBO 全国 完了🔥 開催場日 ${schedule.length} ｜ ${racePacks.length}R OK ｜ ${rows.length}艇 ｜ RACE FAILED ${raceFailed} / Y FAILED ${resultFailed} / CANCELLED ${cancelled} / 開催判定FAILED ${discoveryFailed}`;
 }
 
 async function exportVenueResearchExcel(){

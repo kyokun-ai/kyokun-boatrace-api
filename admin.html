@@ -32,6 +32,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <label class="check"><input id="d4" type="checkbox">④ 当日</label>
 <label class="check"><input id="d5" type="checkbox">⑤ 直前</label>
 <label class="check"><input id="d6" type="checkbox">⑥ 風向・潮汐</label>
+<label class="check"><input id="d7" type="checkbox">⑦ 当地成績</label>
 <label class="check"><input id="dy" type="checkbox" checked>結果・正解Y</label>
 <label class="check"><input id="dvenue" type="checkbox">🏁 場特性</label>
 </div>
@@ -46,6 +47,16 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <div class="note">現在の攻略対象：住之江。今後ここへ24場を順番に追加します。</div>
 <button id="venueSaveFolder" type="button" class="secondary">📁 Excel保存先を選択</button>
 <div class="note" id="venueSaveFolderStatus">保存先：未選択（未選択時は通常のダウンロード）</div>
+</div>
+
+<div id="localResearch" class="venueResearch">
+<div class="venueTag">⑦ 当地成績・6か月研究取得</div>
+<div class="note">②再計測専用。支部／艇番／当地勝率／当地2連率／当地3連率だけを評価情報として取得します。日付・競走場・R・実着順は検証キー／正解Yとして同じ行に保存します。</div>
+<div class="grid" style="margin-top:10px">
+<div><label>開始月</label><input id="localStartMonth" type="month"></div>
+<div><label>期間（最大6か月）</label><select id="localMonths"><option value="1">1か月</option><option value="2">2か月</option><option value="3">3か月</option><option value="4">4か月</option><option value="5">5か月</option><option value="6">6か月</option></select></div>
+</div>
+<div class="note">⑦は単独取得専用です。①〜⑥・結果Y・🏁場特性は同時取得しません。欠損「-」は0へ変換せず空欄で保存します。</div>
 </div>
 <div class="preset">
 <button id="preset12" class="secondary">①＋②＋結果</button>
@@ -185,20 +196,21 @@ const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_t
 // ============================================================
 // DATA SYSTEM v2 — STEP-selective research export
 // ============================================================
-const dataIds=['d1','d2','d3','d4','d5','d6','dy','dvenue'];
+const dataIds=['d1','d2','d3','d4','d5','d6','d7','dy','dvenue'];
 function selectedDataSteps(){return Object.fromEntries(dataIds.map(id=>[id,$(id).checked]))}
 function updateDataPlan(){
  const s=selectedDataSteps(), names=[];
  if(s.d1)names.push('①全国共通'); if(s.d2)names.push('②場別'); if(s.d3)names.push('③節');
- if(s.d4)names.push('④当日'); if(s.d5)names.push('⑤直前'); if(s.d6)names.push('⑥風向・潮汐'); if(s.dy)names.push('結果'); if(s.dvenue)names.push('🏁場特性');
+ if(s.d4)names.push('④当日'); if(s.d5)names.push('⑤直前'); if(s.d6)names.push('⑥風向・潮汐'); if(s.d7)names.push('⑦当地成績'); if(s.dy)names.push('結果'); if(s.dvenue)names.push('🏁場特性');
  $('dataPlan').textContent='現在：'+(names.join('＋')||'未選択');
  $('venueResearch').classList.toggle('show',!!s.dvenue);
+ $('localResearch').classList.toggle('show',!!s.d7);
 }
 dataIds.forEach(id=>$(id).addEventListener('change',updateDataPlan));
-{const d=new Date();d.setMonth(d.getMonth()-1);$('venueStartMonth').value=d.toISOString().slice(0,7)}
+{const d=new Date();d.setMonth(d.getMonth()-1);$('venueStartMonth').value=d.toISOString().slice(0,7);$('localStartMonth').value=d.toISOString().slice(0,7)}
 $('preset12').onclick=()=>{dataIds.forEach(id=>$(id).checked=['d1','d2','dy'].includes(id));updateDataPlan()};
 $('presetResult').onclick=()=>{dataIds.forEach(id=>$(id).checked=id==='dy');updateDataPlan()};
-$('presetAll').onclick=()=>{dataIds.forEach(id=>$(id).checked=id!=='dvenue');updateDataPlan()};
+$('presetAll').onclick=()=>{dataIds.forEach(id=>$(id).checked=!['dvenue','d7'].includes(id));updateDataPlan()};
 
 async function getResearchPack(date,jcd,rno,sel){
  const needsRace=sel.d1||sel.d2||sel.d3;
@@ -420,11 +432,63 @@ async function exportVenueResearchExcel(){
  const saveMsg=await saveVenueWorkbook(wb,filename);
  $('status').textContent=`🏁 ${venueName}・場特性 完了🔥 開催${held}日 ｜ ${rows.filter(x=>x.取得状態==='OK').length}R OK / CANCELLED ${cancelled}R / FAILED ${failed}R ｜ ${saveMsg}`;
 }
+async function exportLocalResearchExcel(){
+ if(typeof XLSX==='undefined')throw new Error('Excelライブラリを読み込めませんでした');
+ const start=$('localStartMonth').value, months=Number($('localMonths').value||1);
+ if(!start)throw new Error('⑦の開始月を選んでください');
+ const [yy,mm]=start.split('-').map(Number), a=new Date(yy,mm-1,1), b=new Date(yy,mm-1+months,0);
+ const days=[];for(let d=new Date(a);d<=b;d.setDate(d.getDate()+1))days.push(d.toLocaleDateString('sv-SE').replaceAll('-',''));
+ const targets=[];
+ async function verifiedVenues(date){
+  const seen=new Map();let lastErr=null;
+  for(let k=0;k<3;k++){try{for(const v of await getHeldVenues(date))if(v?.jcd)seen.set(String(v.jcd),v)}catch(e){lastErr=e}if(k<2)await sleep(300*(k+1))}
+  if(!seen.size)throw new Error(`${date} の開催場一覧を取得できませんでした${lastErr?'：'+lastErr.message:''}`);
+  return [...seen.values()];
+ }
+ for(let i=0;i<days.length;i++){
+  $('status').textContent=`⑦ 当地成績：開催場確認 ${i+1}/${days.length}日 ${days[i]}`;
+  const vs=await verifiedVenues(days[i]);for(const v of vs)targets.push({date:days[i],jcd:String(v.jcd)});
+ }
+ const jobs=[];for(const t of targets)for(let rno=1;rno<=12;rno++)jobs.push({...t,rno});
+ let next=0,done=0;const packs=[];const concurrency=12,started=performance.now();
+ async function one(j){
+  let lastErr='';
+  for(let k=0;k<4;k++){
+   try{
+    const [race,result]=await Promise.all([
+      fetchJson(`/api/race?date=${j.date}&jcd=${j.jcd}&rno=${j.rno}&includeCourseStats=0&includePreInspection=0`),
+      fetchJson(`/api/result?date=${j.date}&jcd=${j.jcd}&rno=${j.rno}`)
+    ]);
+    if(!race?.ok)throw new Error(race?.message||race?.error||'出走表取得失敗');
+    // Result can be unavailable on cancelled races; keep race data and blank answer rather than lose local stats.
+    return {...j,race,result:result?.ok?result:null,resultError:result?.ok?'':(result?.message||result?.error||'結果未取得')};
+   }catch(e){lastErr=e.message;if(k<3)await sleep(400*(k+1))}
+  }
+  return {...j,error:lastErr};
+ }
+ async function worker(){while(true){const i=next++;if(i>=jobs.length)return;const z=await one(jobs[i]);packs.push(z);done++;const sec=Math.max((performance.now()-started)/1000,.001);$('bar').style.width=`${Math.round(done/jobs.length*100)}%`;$('status').textContent=`⑦ 当地成績取得 ${done}/${jobs.length}R ｜ ${(done/sec*60).toFixed(1)}R/分 ｜ 同時${concurrency}R`;}}
+ await Promise.all(Array.from({length:Math.min(concurrency,jobs.length)},()=>worker()));
+ packs.sort((x,y)=>x.date.localeCompare(y.date)||x.jcd.localeCompare(y.jcd)||x.rno-y.rno);
+ const rows=[];let failed=0;
+ for(const p of packs){
+  if(p.error){failed++;for(let lane=1;lane<=6;lane++)rows.push({日付:p.date,場コード:p.jcd,場:venues[p.jcd]||'',R:p.rno,艇番:lane,支部:'',当地勝率:'',当地2連率:'',当地3連率:'',実着順:'',取得状態:'FAILED',取得エラー:p.error});continue}
+  const finishByLane=Object.fromEntries(((p.result&&p.result.finish)||[]).map(x=>[Number(x.lane),x]));
+  for(const r of p.race.racers||[]){const f=finishByLane[Number(r.lane)]||{};rows.push({日付:p.date,場コード:p.jcd,場:venues[p.jcd]||'',R:p.rno,艇番:r.lane??'',支部:r.branch??'',当地勝率:r.local?.winRate??'',当地2連率:r.local?.quinellaRate??'',当地3連率:r.local?.trioRate??'',実着順:f.finish??'',取得状態:'OK',取得エラー:p.resultError||''});}
+ }
+ const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'⑦当地成績_RAW');
+ const filename=`kyokun_⑦当地成績_${start.replace('-','')}_${months}か月.xlsx`;XLSX.writeFile(wb,filename);
+ $('status').textContent=`⑦ 当地成績 完了🔥 ${days.length}日 ｜ ${rows.filter(x=>x.取得状態==='OK').length}艇行 ｜ FAILED ${failed}R ｜ Excel出力済み`;
+}
 $('dataPeriod').onclick=async()=>{
  const sel=selectedDataSteps();
  if(!Object.values(sel).some(Boolean))return alert('取得するSTEPを1つ以上選んでください');
+ if(sel.d7){
+   const others=['d1','d2','d3','d4','d5','d6','dy','dvenue'].some(k=>sel[k]);
+   if(others)return alert('⑦ 当地成績は単独取得専用です。ほかのチェックを外してください。');
+   setBusy(true);try{await exportLocalResearchExcel()}catch(e){$('status').textContent='エラー：'+e.message}finally{setBusy(false)}return;
+ }
  if(sel.dvenue){
-   const others=['d1','d2','d3','d4','d5','d6','dy'].some(k=>sel[k]);
+   const others=['d1','d2','d3','d4','d5','d6','d7','dy'].some(k=>sel[k]);
    if(others)return alert('🏁 場特性は単独取得専用です。①〜⑥・結果Yのチェックを外してください。');
    setBusy(true);try{await exportVenueResearchExcel()}catch(e){$('status').textContent='エラー：'+e.message}finally{setBusy(false)}return;
  }

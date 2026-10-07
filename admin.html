@@ -38,8 +38,8 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 </div>
 
 <div id="localResearch" class="venueResearch">
-<div class="venueTag">⑦ 当地成績・全国TURBO取得</div>
-<div class="note">場所指定不要。期間だけ指定すると全国24場を自動巡回します。支部／艇番／当地勝率／当地2連率／当地3連率だけを取得し、日付／競走場／Rを結合キーとして保存します。結果Y・実着順は取得しません。</div>
+<div class="venueTag">⑦ 当地成績・全国ULTRA取得</div>
+<div class="note">場所指定不要。全国1日分のRace Cards CSVを1回で取得するULTRA方式。支部／艇番／当地勝率／当地2連率／当地3連率だけを保存し、結果Y・実着順は取得しません。</div>
 <div class="grid" style="margin-top:10px">
 <div><label>対象</label><div class="note"><b>全国24場・自動巡回</b>（場所指定不要）</div></div>
 <div><label>開始月</label><input id="localStartMonth" type="month"></div>
@@ -387,36 +387,45 @@ async function exportLocalResearchExcel(){
  if(!start)throw new Error('⑦の開始月を選んでください');
  const [yy,mm]=start.split('-').map(Number),a=new Date(yy,mm-1,1),b=new Date(yy,mm-1+months,0);
  const days=[];for(let d=new Date(a);d<=b;d.setDate(d.getDate()+1))days.push(d.toLocaleDateString('sv-SE').replaceAll('-',''));
-
- // TURBO: 開催判定は「場×日」ではなく「日」につき1回だけ。返った開催場をそのまま全国処理へ回す。
- const schedule=[];let checked=0,discoveryFailed=0;
- for(const date of days){
-   $('status').textContent=`⑦ TURBO 全国：開催確認 ${++checked}/${days.length}日 ${date}`;$('bar').style.width=`${Math.round(checked/days.length*10)}%`;
-   let vs=null;
-   for(let t=0;t<3&&!vs;t++)try{vs=await getHeldVenues(date)}catch(e){if(t<2)await sleep(150*(t+1))}
-   if(!vs){discoveryFailed++;continue}
-   const seen=new Set();
-   for(const v of vs){const j=String(v.jcd||'').padStart(2,'0');if(venues[j]&&!seen.has(j)){seen.add(j);schedule.push({date,jcd:j})}}
+ const rows=[];let done=0,failed=0,empty=0,races=0;
+ const tasks=[...days],CONC=8;
+ async function worker(){
+  while(tasks.length){
+   const date=tasks.shift();let text='',ok=false,last='';
+   for(let k=0;k<3;k++){
+    try{const r=await fetch(`/api/local-ultra?date=${date}`);if(r.ok){text=await r.text();ok=true;break}last=`HTTP ${r.status}`}catch(e){last=e.message}
+    if(k<2)await sleep(150*(k+1));
+   }
+   done++;
+   if(!ok){failed++;continue}
+   if(!text.trim()){empty++;continue}
+   try{
+    const wb0=XLSX.read(text,{type:'string'}),ws0=wb0.Sheets[wb0.SheetNames[0]],data=XLSX.utils.sheet_to_json(ws0,{defval:''});
+    if(!data.length){empty++;continue}
+    for(const x of data){
+     const jcd=String(x['レース場コード']??'').padStart(2,'0');
+     const rr=String(x['レース回']??'').replace(/R/gi,'');
+     if(!/^\\d{1,2}$/.test(rr)||!venues[jcd])continue;
+     races++;
+     for(let n=1;n<=6;n++)rows.push({
+      日付:String(x['レース日']||date).replaceAll('-',''),競走場コード:jcd,競走場:venues[jcd],R:Number(rr),
+      支部:x[`艇${n}_支部`]??'',艇番:n,当地勝率:x[`艇${n}_当地勝率`]??'',
+      当地2連率:x[`艇${n}_当地2連対率`]??'',当地3連率:x[`艇${n}_当地3連対率`]??''
+     });
+    }
+   }catch(e){failed++}
+   $('status').textContent=`⑦ ULTRA 全国：日次CSV ${done}/${days.length}日 ｜ ${races}R ｜ ${rows.length}艇`;
+   $('bar').style.width=`${Math.round(done/days.length*95)}%`;
+  }
  }
-
- // ⑦専用TURBO: /api/race だけを取得。結果Y・実着順には一切アクセスしない。
- const racePacks=[];let raceDone=0,raceFailed=0;
- const tasks=[];for(const x of schedule)for(let rno=1;rno<=12;rno++)tasks.push({...x,rno});
- const totalTasks=tasks.length,CONC=24;
- async function workerRace(){
-   while(tasks.length){const t=tasks.shift();let race=null,last='';for(let k=0;k<3;k++){try{race=await fetchJson(`/api/race?date=${t.date}&jcd=${t.jcd}&rno=${t.rno}&includeCourseStats=0&includePreInspection=0`);if(race?.ok)break;last=race?.error||'取得失敗'}catch(e){last=e.message}if(k<2)await sleep(120*(k+1))}raceDone++;if(race?.ok)racePacks.push({...t,race});else raceFailed++;if(raceDone%12===0){$('status').textContent=`⑦ TURBO 全国：当地成績 ${raceDone}/${Math.max(1,totalTasks)}R ｜ ${racePacks.length}R OK`;$('bar').style.width=`${10+Math.round((raceDone/Math.max(1,totalTasks))*90)}%`}}
- }
- await Promise.all(Array.from({length:Math.min(CONC,Math.max(1,tasks.length))},()=>workerRace()));
-
- const rows=[];
- for(const p of racePacks){for(const r of (p.race.racers||[]))rows.push({日付:p.date,競走場コード:p.jcd,競走場:venues[p.jcd]||p.jcd,R:p.rno,支部:r.branch??'',艇番:r.lane??'',当地勝率:r.local?.winRate??'',当地2連率:r.local?.quinellaRate??'',当地3連率:r.local?.trioRate??''})}
- rows.sort((x,y)=>String(x.日付).localeCompare(String(y.日付))||String(x.競走場コード).localeCompare(String(y.競走場コード)||'')||Number(x.R)-Number(y.R)||Number(x.艇番)-Number(y.艇番));
+ await Promise.all(Array.from({length:Math.min(CONC,tasks.length||1)},()=>worker()));
+ rows.sort((x,y)=>String(x.日付).localeCompare(String(y.日付))||String(x.競走場コード).localeCompare(String(y.競走場コード))||Number(x.R)-Number(y.R)||Number(x.艇番)-Number(y.艇番));
  const headers=['日付','競走場コード','競走場','R','支部','艇番','当地勝率','当地2連率','当地3連率'];
  const aoa=[headers,...rows.map(x=>headers.map(h=>x[h]??''))];
  const wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(aoa);ws['!autofilter']={ref:`A1:I${Math.max(1,aoa.length)}`};ws['!freeze']={xSplit:0,ySplit:1};XLSX.utils.book_append_sheet(wb,ws,'⑦当地成績_RAW');
- const spec=[['項目','内容'],['対象','全国24場・⑦当地成績専用'],['評価用5項目','支部／艇番／当地勝率／当地2連率／当地3連率'],['結合キー','日付／競走場／R／艇番'],['結果Y・実着順','取得しない。別取得したYと後で結合'],['期間','1〜6か月'],['TURBO①','開催判定は1日1回。開催中の全場を自動巡回'],['TURBO②','⑦本体は /api/race のみ取得。/api/result へアクセスしない'],['TURBO③','開催なしの場×日を総当たりしない'],['欠損','公式「-」は空欄。0へ変換しない'],['既存STEP','①〜⑥・結果Yは再取得しない']];XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(spec),'項目説明');
- const filename=`⑦当地成績_全国_${start.replace('-','')}_${months}か月_TURBO_⑦専用.xlsx`;XLSX.writeFile(wb,filename);$('bar').style.width='100%';
- $('status').textContent=`⑦専用 TURBO 全国 完了🔥 開催場日 ${schedule.length} ｜ ${racePacks.length}R OK ｜ ${rows.length}艇 ｜ RACE FAILED ${raceFailed} / 開催判定FAILED ${discoveryFailed} ｜ 結果Y取得 0件`;
+ const spec=[['項目','内容'],['対象','全国24場・⑦当地成績専用 ULTRA'],['評価用5項目','支部／艇番／当地勝率／当地2連率／当地3連率'],['結合キー','日付／競走場／R／艇番'],['結果Y・実着順','取得しない。別取得したYと後で結合'],['期間','1〜6か月'],['ULTRA取得','BoatraceCSV Race Cardsを全国1日1CSVで取得'],['元データ','race.boatcast.jp bc_j_str3由来'],['通信量','基本1日1CSV。6か月で約180日分'],['当地成績定義','過去3年・今節除く'],['欠損','空欄は空欄のまま。0へ変換しない'],['既存STEP','①〜⑥・結果Yは再取得しない']];XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(spec),'項目説明');
+ const filename=`⑦当地成績_全国_${start.replace('-','')}_${months}か月_ULTRA.xlsx`;XLSX.writeFile(wb,filename);$('bar').style.width='100%';
+ $('status').textContent=`⑦ ULTRA 全国 完了🔥 ${done}日処理 ｜ ${races}R ｜ ${rows.length}艇 ｜ FAILED ${failed}日 / 空 ${empty}日 ｜ 結果Y取得 0件`;
 }
 
 async function exportVenueResearchExcel(){

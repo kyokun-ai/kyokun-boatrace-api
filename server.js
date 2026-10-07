@@ -625,6 +625,25 @@ function extractCurrentMeet($, tr, meetDates, targetDate, targetRno) {
 // API
 // ========================================
 
+
+// ========================================
+// ⑦ 当地成績 ULTRA: 全国1日1CSV
+// Source: BoatraceCSV race_cards (race.boatcast.jp bc_j_str3 derived)
+// ========================================
+app.get('/api/local-ultra', async (req,res)=>{
+  try{
+    const raw=String(req.query.date||'').replace(/-/g,'');
+    if(!/^\d{8}$/.test(raw)) return res.status(400).json({ok:false,error:'dateはYYYYMMDD'});
+    const y=raw.slice(0,4),m=raw.slice(4,6),d=raw.slice(6,8);
+    const url=`https://boatracecsv.github.io/data/programs/race_cards/${y}/${m}/${d}.csv`;
+    const r=await fetch(url,{headers:{'user-agent':'kyokun-boatrace-api/1.0'}});
+    if(r.status===404) return res.json({ok:true,date:raw,empty:true,csv:''});
+    if(!r.ok) throw new Error(`CSV HTTP ${r.status}`);
+    const csv=await r.text();
+    res.type('text/csv; charset=utf-8').send(csv);
+  }catch(e){res.status(502).json({ok:false,error:e.message||String(e)})}
+});
+
 app.get('/api/race', async (req, res) => {
 
   const { date, jcd, rno } = req.query;

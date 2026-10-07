@@ -405,7 +405,7 @@ async function exportLocalResearchExcel(){
     for(const x of data){
      const jcd=String(x['レース場コード']??'').padStart(2,'0');
      const rr=String(x['レース回']??'').replace(/R/gi,'');
-     if(!/^\\d{1,2}$/.test(rr)||!venues[jcd])continue;
+     if(!/^\d{1,2}$/.test(rr)||!venues[jcd])continue;
      races++;
      for(let n=1;n<=6;n++)rows.push({
       日付:String(x['レース日']||date).replaceAll('-',''),競走場コード:jcd,競走場:venues[jcd],R:Number(rr),

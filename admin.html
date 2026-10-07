@@ -48,6 +48,17 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <div class="note">⑦は単独取得専用。既存①〜⑥・結果Yは再取得しません。</div>
 </div>
 
+<div id="resultUltra" class="venueResearch">
+<div class="venueTag">Y 結果・全国ULTRA取得</div>
+<div class="note">場所指定不要。全国1日分のResults CSVを1回で取得。成立レースだけを保存し、中止・順延・途中中止は元データ側でスキップされます。</div>
+<div class="grid" style="margin-top:10px">
+<div><label>対象</label><div class="note"><b>全国24場・自動</b>（場所指定不要）</div></div>
+<div><label>開始月</label><input id="resultStartMonth" type="month"></div>
+<div><label>期間（最大6か月）</label><select id="resultMonths"><option value="1">1か月</option><option value="2">2か月</option><option value="3">3か月</option><option value="4">4か月</option><option value="5">5か月</option><option value="6">6か月</option></select></div>
+</div>
+<div class="note">Y単独取得時はULTRA方式。①〜⑦・場特性は再取得しません。</div>
+</div>
+
 <div id="venueResearch" class="venueResearch">
 <div class="venueTag">🏁 競艇場別攻略・場特性専用</div>
 <div class="note">選手情報・①・②-Aは取得しません。結果／本番進入／本番ST／決まり手／風向・風速／波高／気温／水温／天候／異常・返還だけを1つのExcelにまとめます。</div>
@@ -205,7 +216,7 @@ function updateDataPlan(){
  if(s.d1)names.push('①全国共通'); if(s.d2)names.push('②場別'); if(s.d3)names.push('③節');
  if(s.d4)names.push('④当日'); if(s.d5)names.push('⑤直前'); if(s.d6)names.push('⑥風向・潮汐'); if(s.d7)names.push('⑦当地成績'); if(s.dy)names.push('結果'); if(s.dvenue)names.push('🏁場特性');
  $('dataPlan').textContent='現在：'+(names.join('＋')||'未選択');
- $('venueResearch').classList.toggle('show',!!s.dvenue); $('localResearch').classList.toggle('show',!!s.d7);
+ $('venueResearch').classList.toggle('show',!!s.dvenue); $('localResearch').classList.toggle('show',!!s.d7); $('resultUltra').classList.toggle('show',!!s.dy && !s.d1&&!s.d2&&!s.d3&&!s.d4&&!s.d5&&!s.d6&&!s.d7&&!s.dvenue);
 }
 dataIds.forEach(id=>$(id).addEventListener('change',updateDataPlan));
 {const d=new Date();d.setMonth(d.getMonth()-1);$('venueStartMonth').value=d.toISOString().slice(0,7);$('localStartMonth').value=d.toISOString().slice(0,7)}
@@ -428,6 +439,34 @@ async function exportLocalResearchExcel(){
  $('status').textContent=`⑦ ULTRA 全国 完了🔥 ${done}日処理 ｜ ${races}R ｜ ${rows.length}艇 ｜ FAILED ${failed}日 / 空 ${empty}日 ｜ 結果Y取得 0件`;
 }
 
+async function exportResultUltraExcel(){
+ if(typeof XLSX==='undefined')throw new Error('Excelライブラリを読み込めませんでした');
+ const start=$('resultStartMonth').value,months=Number($('resultMonths').value||1);
+ if(!start)throw new Error('Yの開始月を選んでください');
+ const [yy,mm]=start.split('-').map(Number),a=new Date(yy,mm-1,1),b=new Date(yy,mm-1+months,0);
+ const days=[];for(let d=new Date(a);d<=b;d.setDate(d.getDate()+1))days.push(d.toLocaleDateString('sv-SE').replaceAll('-',''));
+ const rows=[];let done=0,failed=0,empty=0;const tasks=[...days],CONC=8;
+ async function worker(){while(tasks.length){const date=tasks.shift();let text='',ok=false;
+  for(let k=0;k<3;k++){try{const r=await fetch(`/api/result-ultra?date=${date}`);if(r.ok){text=await r.text();ok=true;break}}catch(e){}if(k<2)await sleep(150*(k+1));}
+  done++;if(!ok){failed++;continue}if(!text.trim()){empty++;continue}
+  try{const wb0=XLSX.read(text,{type:'string'}),ws0=wb0.Sheets[wb0.SheetNames[0]],data=XLSX.utils.sheet_to_json(ws0,{defval:''});if(!data.length){empty++;continue}
+   for(const x of data){
+    const rr=Number(String(x['レース回']??'').replace(/R/gi,''));if(!rr)continue;
+    const base={レースコード:x['レースコード']??'',日付:String(x['レース日']||date).replaceAll('-',''),競走場:x['レース場']??'',R:rr,決まり手:x['決まり手']??''};
+    const finish={};for(let n=1;n<=6;n++){const boat=Number(x[`${n}着_艇番`]);if(boat>=1&&boat<=6)finish[boat]=n;}
+    for(let boat=1;boat<=6;boat++)rows.push({...base,艇番:boat,実着順:finish[boat]??''});
+   }
+  }catch(e){failed++}
+  $('status').textContent=`Y ULTRA 全国：日次CSV ${done}/${days.length}日 ｜ ${Math.floor(rows.length/6)}R ｜ ${rows.length}艇`;$('bar').style.width=`${Math.round(done/days.length*95)}%`;
+ }}
+ await Promise.all(Array.from({length:Math.min(CONC,tasks.length||1)},()=>worker()));
+ rows.sort((x,y)=>String(x.日付).localeCompare(String(y.日付))||String(x.レースコード).localeCompare(String(y.レースコード))||Number(x.艇番)-Number(y.艇番));
+ const headers=['レースコード','日付','競走場','R','艇番','実着順','決まり手'];const aoa=[headers,...rows.map(x=>headers.map(h=>x[h]??''))];
+ const wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(aoa);ws['!autofilter']={ref:`A1:G${Math.max(1,aoa.length)}`};ws['!freeze']={xSplit:0,ySplit:1};XLSX.utils.book_append_sheet(wb,ws,'正解Y_ULTRA');
+ const spec=[['項目','内容'],['対象','全国24場・結果Y専用 ULTRA'],['基本単位','1艇1行'],['結合キー','日付／競走場／R／艇番（レースコードも保持）'],['取得元','BoatraceCSV Realtime Results'],['取得','全国1日1CSV'],['中止等','中止／順延／途中中止は元データ側でスキップ'],['期間','1〜6か月'],['既存STEP','①〜⑦は再取得しない']];XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(spec),'項目説明');
+ XLSX.writeFile(wb,`Y結果_全国_${start.replace('-','')}_${months}か月_ULTRA.xlsx`);$('bar').style.width='100%';$('status').textContent=`Y ULTRA 全国 完了🔥 ${done}日 ｜ ${Math.floor(rows.length/6)}R ｜ ${rows.length}艇 ｜ FAILED ${failed}日 / 空 ${empty}日`;
+}
+
 async function exportVenueResearchExcel(){
  if(typeof XLSX==='undefined')throw new Error('Excelライブラリを読み込めませんでした');
  const start=$('venueStartMonth').value, months=Number($('venueMonths').value||1), JCD=$('venueTarget')?.value||'12', venueName=venues[JCD]||JCD;
@@ -487,6 +526,9 @@ $('dataPeriod').onclick=async()=>{
    const others=['d1','d2','d3','d4','d5','d6','dy','dvenue'].some(k=>sel[k]);
    if(others)return alert('⑦ 当地成績は単独取得専用です。他のチェックを外してください。');
    setBusy(true);try{await exportLocalResearchExcel()}catch(e){$('status').textContent='エラー：'+e.message}finally{setBusy(false)}return;
+ }
+ if(sel.dy && !sel.d1&&!sel.d2&&!sel.d3&&!sel.d4&&!sel.d5&&!sel.d6&&!sel.d7&&!sel.dvenue){
+   setBusy(true);try{await exportResultUltraExcel()}catch(e){$('status').textContent='エラー：'+e.message}finally{setBusy(false)}return;
  }
  if(sel.dvenue){
    const others=['d1','d2','d3','d4','d5','d6','d7','dy'].some(k=>sel[k]);

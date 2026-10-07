@@ -644,6 +644,20 @@ app.get('/api/local-ultra', async (req,res)=>{
   }catch(e){res.status(502).json({ok:false,error:e.message||String(e)})}
 });
 
+// Y 結果 ULTRA: 全国1日1CSV
+app.get('/api/result-ultra', async (req,res)=>{
+  try{
+    const raw=String(req.query.date||'').replace(/-/g,'');
+    if(!/^\d{8}$/.test(raw)) return res.status(400).json({ok:false,error:'dateはYYYYMMDD'});
+    const y=raw.slice(0,4),m=raw.slice(4,6),d=raw.slice(6,8);
+    const url=`https://boatracecsv.github.io/data/results/realtime/${y}/${m}/${d}.csv`;
+    const r=await fetch(url,{headers:{'user-agent':'kyokun-boatrace-api/1.0'}});
+    if(r.status===404) return res.type('text/csv; charset=utf-8').send('');
+    if(!r.ok) throw new Error(`CSV HTTP ${r.status}`);
+    res.type('text/csv; charset=utf-8').send(await r.text());
+  }catch(e){res.status(502).json({ok:false,error:e.message||String(e)})}
+});
+
 app.get('/api/race', async (req, res) => {
 
   const { date, jcd, rno } = req.query;

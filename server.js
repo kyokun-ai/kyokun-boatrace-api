@@ -2021,6 +2021,23 @@ app.get('/api/turbo-status', (req,res) => {
 });
 
 
+// ========================================
+// v1.0.0.1 ①選手情報: 全国1日1CSV
+// 取得項目: 選手名 / 登録番号 / 級別
+// ========================================
+app.get('/api/player-info', async (req,res)=>{
+  try{
+    const raw=String(req.query.date||'').replace(/-/g,'');
+    if(!/^\d{8}$/.test(raw)) return res.status(400).json({ok:false,error:'dateはYYYYMMDD'});
+    const y=raw.slice(0,4),m=raw.slice(4,6),d=raw.slice(6,8);
+    const url=`https://boatracecsv.github.io/data/programs/race_cards/${y}/${m}/${d}.csv`;
+    const r=await fetch(url,{headers:{'user-agent':'kyotei-data-logic/1.0.0.1'}});
+    if(r.status===404) return res.type('text/csv; charset=utf-8').send('');
+    if(!r.ok) throw new Error(`CSV HTTP ${r.status}`);
+    res.type('text/csv; charset=utf-8').send(await r.text());
+  }catch(e){res.status(502).json({ok:false,error:e.message||String(e)})}
+});
+
 app.listen(
   port,
   () =>
@@ -2028,3 +2045,53 @@ app.listen(
       `Kyokun API v3.1 TURBO CACHE+ running on ${port}`
     )
 );
+
+// ========================================
+// v1.0.0.2 ①選手情報：現在の現役選手マスタ
+// BOAT RACE公式レーサー検索を級別ごとに取得し、登録番号で一意化。
+// 期間指定・レース出走実績には依存しない。
+// ========================================
+app.get('/api/current-racers', async (req, res) => {
+  try {
+    const classes = ['A1','A2','B1','B2'];
+    const racers = new Map();
+    const fetchPage = async (rankClass, beginRow) => {
+      const q = new URLSearchParams({ kyu: rankClass, prevpgid: 'TDAT320' });
+      if (beginRow > 1) q.set('orteusPageSelectBeginRow', String(beginRow));
+      const url = `https://www.boatrace.jp/owpc/pc/data/racersearch/result?${q}`;
+      const html = await officialFetch(url);
+      const $ = cheerio.load(html);
+      const body = $('body').text().replace(/\u3000/g, ' ').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ');
+      const found = [];
+      const re = /(\d{4})\s+([^0-9]{1,32}?)\s+級別[：:]\s*(A1|A2|B1|B2)/g;
+      let m;
+      while ((m = re.exec(body)) !== null) {
+        const registration = m[1];
+        const name = m[2].replace(/\s+/g, ' ').trim();
+        const cls = m[3];
+        if (!/^\d{4}$/.test(registration) || !name || cls !== rankClass) continue;
+        found.push({ 選手名:name, 登録番号:registration, 級別:cls });
+      }
+      return found;
+    };
+
+    for (const cls of classes) {
+      let noNewPages = 0;
+      for (let begin = 1; begin <= 1201; begin += 40) {
+        const page = await fetchPage(cls, begin);
+        let added = 0;
+        for (const r of page) {
+          if (!racers.has(r.登録番号)) { racers.set(r.登録番号, r); added++; }
+          else racers.set(r.登録番号, r); // current class wins
+        }
+        if (!page.length || added === 0) noNewPages++; else noNewPages = 0;
+        if (noNewPages >= 2) break;
+      }
+    }
+    const list = [...racers.values()].sort((a,b)=>Number(a.登録番号)-Number(b.登録番号));
+    if (!list.length) return res.status(502).json({ error:'公式レーサー検索から選手を取得できませんでした' });
+    res.json({ fetchedAt:new Date().toISOString(), count:list.length, racers:list });
+  } catch (e) {
+    res.status(500).json({ error:String(e?.message || e) });
+  }
+});

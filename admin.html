@@ -4,28 +4,56 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>競艇データ収集</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
-body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-system,sans-serif}
-.wrap{max-width:980px;margin:auto;padding:18px}
-.homeLink{display:inline-block;color:#8dc8ff;text-decoration:none;margin:0 0 12px}.homeLink:hover{text-decoration:underline}
-.header{margin:4px 0 22px}
-h1{font-size:26px;margin:0 0 6px}.version{color:#9db2c9;font-size:15px}
-.panel{background:#101d2d;border:1px solid #263b53;border-radius:16px;padding:18px;margin:12px 0}
-.panel h2{font-size:20px;margin:0 0 12px}.note{font-size:14px;color:#9db2c9;line-height:1.7}
-@media(max-width:600px){.wrap{padding:10px}h1{font-size:22px}}
+body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-system,sans-serif}.wrap{max-width:980px;margin:auto;padding:18px}.homeLink{display:inline-block;color:#8dc8ff;text-decoration:none;margin:0 0 12px}.homeLink:hover{text-decoration:underline}.header{margin:4px 0 22px}h1{font-size:26px;margin:0 0 6px}.version{color:#9db2c9;font-size:15px}.panel{background:#101d2d;border:1px solid #263b53;border-radius:16px;padding:18px;margin:12px 0}.panel h2{font-size:20px;margin:0 0 14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{font-size:13px;color:#a9bed3;display:block;margin-bottom:6px}input,select,button{width:100%;box-sizing:border-box;border-radius:10px;border:1px solid #36506c;padding:12px;font-size:16px}input,select{background:#0b1725;color:white}button{background:#1687ff;color:white;font-weight:800;margin-top:16px;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}.note{font-size:14px;color:#9db2c9;line-height:1.7}.status{margin-top:14px;color:#b8cbe0;line-height:1.6}.progress{height:10px;background:#071421;border-radius:10px;overflow:hidden;margin-top:10px}.bar{height:100%;background:#1687ff;width:0%;transition:width .2s}.item{margin-top:18px;border-top:1px solid #263b53;padding-top:16px}.itemTitle{font-size:18px;font-weight:800}.fields{font-size:13px;color:#9db2c9;margin-top:5px}@media(max-width:600px){.wrap{padding:10px}h1{font-size:22px}.grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <div class="wrap">
 <a class="homeLink" href="index.html">← メインに戻る</a>
-<div class="header">
-<h1>📦 競艇データ収集</h1>
-<div class="version">VERSION v1.0.0.0</div>
-</div>
+<div class="header"><h1>📦 競艇データ収集</h1><div class="version">VERSION v1.0.0.2</div></div>
 <div class="panel">
-<h2>データ取得</h2>
-<div class="note">取得項目は白紙です。ここから新しいデータ収集項目を追加します。</div>
+<h2>取得期間</h2>
+<div class="grid">
+ <div><label>取得開始日</label><input id="startDate" type="date"></div>
+ <div><label>一括取得する月数（最大12か月）</label><select id="months"></select></div>
+</div>
+<div class="item">
+ <div class="itemTitle">① 選手情報</div>
+ <div class="fields">取得項目：選手名 ｜ 登録番号 ｜ 級別</div>
+ <button id="playerBtn">① 選手情報を取得してExcel出力</button>
+</div>
+<div id="status" class="status">待機中</div><div class="progress"><div id="bar" class="bar"></div></div>
+<div class="note" style="margin-top:12px">①選手情報は期間指定を使用せず、現在の現役選手を公式レーサー検索から取得します。1選手＝1行で「選手名・登録番号・現在級別」だけを保存します。期間指定欄は今後追加する履歴データ取得用です。</div>
 </div>
 </div>
-</body>
-</html>
+<script>
+const $=id=>document.getElementById(id);
+for(let i=1;i<=12;i++){const o=document.createElement('option');o.value=i;o.textContent=`${i}か月`;if(i===1)o.selected=true;$('months').appendChild(o)}
+const now=new Date();$('startDate').value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+async function runPlayerMaster(){
+ if(typeof XLSX==='undefined')throw new Error('Excelライブラリを読み込めませんでした');
+ $('playerBtn').disabled=true;$('bar').style.width='10%';$('status').textContent='①選手情報：現在の現役選手名簿を取得中…';
+ try{
+  const r=await fetch('/api/current-racers');
+  if(!r.ok){const t=await r.text();throw new Error(t||`HTTP ${r.status}`)}
+  const data=await r.json();
+  const rows=(data.racers||[]).sort((a,b)=>Number(a.登録番号)-Number(b.登録番号));
+  if(!rows.length)throw new Error('現役選手を取得できませんでした');
+  $('bar').style.width='75%';$('status').textContent=`①選手情報：${rows.length}選手取得。Excel作成中…`;
+  const headers=['No.','選手名','登録番号','級別'];
+  const aoa=[headers,...rows.map((r,i)=>[i+1,r.選手名||'',r.登録番号||'',r.級別||''])];
+  const out=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!autofilter']={ref:`A1:D${Math.max(1,aoa.length)}`};ws['!freeze']={xSplit:0,ySplit:1};
+  ws['!cols']=[{wch:8},{wch:20},{wch:12},{wch:10}];
+  XLSX.utils.book_append_sheet(out,ws,'①選手情報');
+  const spec=[['項目','内容'],['データ種別','現在の現役選手マスタ'],['取得項目','選手名／登録番号／現在級別'],['行単位','1選手＝1行'],['取得日時',new Date().toLocaleString('ja-JP')],['期間指定','①選手情報では使用しない'],['取得元','BOAT RACE公式 ボートレーサー検索'],['重複処理','登録番号で重複排除']];
+  XLSX.utils.book_append_sheet(out,XLSX.utils.aoa_to_sheet(spec),'項目説明');
+  XLSX.writeFile(out,'①選手情報_現役選手マスタ.xlsx');
+  $('bar').style.width='100%';$('status').textContent=`①選手情報 完了🔥 現役 ${rows.length}選手 ｜ 1選手1行`;
+ } finally {$('playerBtn').disabled=false}
+}
+$('playerBtn').addEventListener('click',()=>runPlayerMaster().catch(e=>{$('status').textContent=`エラー：${e.message||e}`;$('bar').style.width='0%';$('playerBtn').disabled=false}));
+</script>
+</body></html>

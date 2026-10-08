@@ -2046,52 +2046,41 @@ app.listen(
     )
 );
 
-// ========================================
-// v1.0.0.2 ①選手情報：現在の現役選手マスタ
-// BOAT RACE公式レーサー検索を級別ごとに取得し、登録番号で一意化。
-// 期間指定・レース出走実績には依存しない。
-// ========================================
+// v1.0.0.3 ①現役選手名簿：登録番号の範囲検索（公式検索の必須条件に対応）
+// 公式検索は名前または登録番号が必須。級別だけの検索は不可。
 app.get('/api/current-racers', async (req, res) => {
   try {
-    const classes = ['A1','A2','B1','B2'];
     const racers = new Map();
-    const fetchPage = async (rankClass, beginRow) => {
-      const q = new URLSearchParams({ kyu: rankClass, prevpgid: 'TDAT320' });
-      if (beginRow > 1) q.set('orteusPageSelectBeginRow', String(beginRow));
-      const url = `https://www.boatrace.jp/owpc/pc/data/racersearch/result?${q}`;
-      const html = await officialFetch(url);
-      const $ = cheerio.load(html);
-      const body = $('body').text().replace(/\u3000/g, ' ').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ');
-      const found = [];
-      const re = /(\d{4})\s+([^0-9]{1,32}?)\s+級別[：:]\s*(A1|A2|B1|B2)/g;
-      let m;
-      while ((m = re.exec(body)) !== null) {
-        const registration = m[1];
-        const name = m[2].replace(/\s+/g, ' ').trim();
-        const cls = m[3];
-        if (!/^\d{4}$/.test(registration) || !name || cls !== rankClass) continue;
-        found.push({ 選手名:name, 登録番号:registration, 級別:cls });
-      }
-      return found;
-    };
-
-    for (const cls of classes) {
-      let noNewPages = 0;
-      for (let begin = 1; begin <= 1201; begin += 40) {
-        const page = await fetchPage(cls, begin);
-        let added = 0;
-        for (const r of page) {
-          if (!racers.has(r.登録番号)) { racers.set(r.登録番号, r); added++; }
-          else racers.set(r.登録番号, r); // current class wins
-        }
-        if (!page.length || added === 0) noNewPages++; else noNewPages = 0;
-        if (noNewPages >= 2) break;
+    const errors = [];
+    const ranges = [];
+    for (let lo = 2000; lo <= 5999; lo += 25) ranges.push([lo, lo + 24]);
+    let cursor = 0;
+    async function worker() {
+      while (cursor < ranges.length) {
+        const [lo, hi] = ranges[cursor++];
+        try {
+          const query = new URLSearchParams({prevpgid:'TDAT320',toban_left:String(lo),toban_right:String(hi)});
+          const html = await officialFetch('https://www.boatrace.jp/owpc/pc/data/racersearch/result?' + query);
+          const $ = cheerio.load(html);
+          const body = $('body').text().replace(/\u3000/g,' ').replace(/[\r\n\t]+/g,' ').replace(/\s+/g,' ');
+          if (!body.includes('検索結果') || !body.includes('級別')) throw new Error('検索結果ページを確認できません');
+          const re = /(\d{4})\s+([^0-9]{1,40}?)\s+級別[：:]\s*(A1|A2|B1|B2)/g;
+          let m;
+          while ((m = re.exec(body)) !== null) {
+            const num = Number(m[1]);
+            if (num < lo || num > hi) continue;
+            const name = m[2].replace(/\s+/g,' ').trim();
+            if (!name || name.length > 25 || /検索|登録番号|ボートレーサー/.test(name)) continue;
+            racers.set(m[1], {選手名:name, 登録番号:m[1], 級別:m[3]});
+          }
+        } catch (err) { errors.push(`${lo}-${hi}: ${String(err?.message || err)}`); }
       }
     }
+    await Promise.all(Array.from({length:4},()=>worker()));
+    // 一部欠損の名簿を完成品として保存させない
+    if (errors.length) return res.status(502).json({error:`公式検索の取得に失敗した範囲が${errors.length}件あります`, details:errors.slice(0,8)});
     const list = [...racers.values()].sort((a,b)=>Number(a.登録番号)-Number(b.登録番号));
-    if (!list.length) return res.status(502).json({ error:'公式レーサー検索から選手を取得できませんでした' });
-    res.json({ fetchedAt:new Date().toISOString(), count:list.length, racers:list });
-  } catch (e) {
-    res.status(500).json({ error:String(e?.message || e) });
-  }
+    if (list.length < 800) return res.status(502).json({error:`取得人数が少なすぎます（${list.length}人）。公式検索の構造変更などを確認してください`});
+    res.json({fetchedAt:new Date().toISOString(), count:list.length, racers:list});
+  } catch (e) { res.status(500).json({error:String(e?.message || e)}); }
 });

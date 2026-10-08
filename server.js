@@ -2084,3 +2084,27 @@ app.get('/api/current-racers', async (req, res) => {
     res.json({fetchedAt:new Date().toISOString(), count:list.length, racers:list});
   } catch (e) { res.status(500).json({error:String(e?.message || e)}); }
 });
+
+// v1.0.0.5 ②選手情報詳細: 公式の期別成績とコース別成績（現在掲載値）
+function parseSeasonDetail(html) {
+ const $ = cheerio.load(html), txt = clean($('body').text());
+ const m = txt.match(/2連対率\s*([\d.]+)%\s*3連対率\s*([\d.]+)%/);
+ if(!m) throw new Error('期別成績の2連対率・3連対率を抽出できません');
+ const period = txt.match(/集計期間[：:]?\s*(\d{4}\/\d{2}\/\d{2})\s*[-～〜]\s*(\d{4}\/\d{2}\/\d{2})/);
+ return {two:Number(m[1]),three:Number(m[2]),period:period?`${period[1]}-${period[2]}`:''};
+}
+app.get('/api/racer-detail',async(req,res)=>{
+ const id=String(req.query.toban||'');
+ if(!/^\d{4}$/.test(id))return res.status(400).json({error:'登録番号が不正です'});
+ try{
+  const [seasonHtml,courseHtml]=await Promise.all([
+   officialFetch(`https://www.boatrace.jp/owpc/pc/data/racersearch/season?toban=${id}`),
+   officialFetch(`https://www.boatrace.jp/owpc/pc/data/racersearch/course?toban=${id}`)
+  ]);
+  const season=parseSeasonDetail(seasonHtml);
+  const course=await fetchCourseStats(id);
+  const available=Object.values(course.courses||{}).some(v=>v.trioRate!==null);
+  if(!available)throw new Error('コース別成績の抽出に失敗');
+  res.json({registration:id,season,courses:course.courses});
+ }catch(e){res.status(502).json({error:String(e.message||e)})}
+});

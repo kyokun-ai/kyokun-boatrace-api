@@ -12,7 +12,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <body>
 <div class="wrap">
 <a class="homeLink" href="index.html">← メインに戻る</a>
-<div class="header"><h1>📦 競艇データ収集</h1><div class="version">VERSION v1.0.0.3</div></div>
+<div class="header"><h1>📦 競艇データ収集</h1><div class="version">VERSION v1.0.0.4</div></div>
 <div class="panel">
 <h2>取得期間</h2>
 <div class="grid">
@@ -23,6 +23,12 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
  <div class="itemTitle">① 選手情報</div>
  <div class="fields">取得項目：選手名 ｜ 登録番号 ｜ 級別</div>
  <button id="playerBtn">① 選手情報を取得してExcel出力</button>
+</div>
+<div class="item">
+ <div class="itemTitle">② 選手情報詳細</div>
+ <div class="fields">取得キー：登録番号のみ ｜ 全国2連対率・3連対率 ｜ コース別成績 ｜ 場別コース成績 ｜ 場別当地成績</div>
+ <button id="playerDetailBtn" type="button">② 選手情報詳細を取得してExcel出力</button>
+ <div id="detailStatus" class="status">取得元・集計期間の確認中（取得処理は未実装）</div>
 </div>
 <div id="status" class="status">待機中</div><div class="progress"><div id="bar" class="bar"></div></div>
 <div class="note" style="margin-top:12px">①選手情報は期間指定を使用せず、現在の現役選手を公式レーサー検索から取得します。1選手＝1行で「選手名・登録番号・現在級別」だけを保存します。期間指定欄は今後追加する履歴データ取得用です。</div>
@@ -54,6 +60,7 @@ async function runPlayerMaster(){
   $('bar').style.width='100%';$('status').textContent=`①選手情報 完了🔥 現役 ${rows.length}選手 ｜ 1選手1行`;
  } finally {$('playerBtn').disabled=false}
 }
+$('playerDetailBtn').addEventListener('click',()=>{$('detailStatus').textContent='②は取得元の項目・集計期間を確認中です。未検証の数値を出力しないため、取得処理はまだ実装していません。';});
 $('playerBtn').addEventListener('click',()=>runPlayerMaster().catch(e=>{$('status').textContent=`エラー：${e.message||e}`;$('bar').style.width='0%';$('playerBtn').disabled=false}));
 </script>
 </body></html>

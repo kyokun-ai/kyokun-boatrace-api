@@ -2097,14 +2097,42 @@ app.get('/api/racer-detail',async(req,res)=>{
  const id=String(req.query.toban||'');
  if(!/^\d{4}$/.test(id))return res.status(400).json({error:'登録番号が不正です'});
  try{
-  const [seasonHtml,courseHtml]=await Promise.all([
-   officialFetch(`https://www.boatrace.jp/owpc/pc/data/racersearch/season?toban=${id}`),
-   officialFetch(`https://www.boatrace.jp/owpc/pc/data/racersearch/course?toban=${id}`)
-  ]);
+  const seasonHtml=await officialFetch(`https://www.boatrace.jp/owpc/pc/data/racersearch/season?toban=${id}`);
   const season=parseSeasonDetail(seasonHtml);
   const course=await fetchCourseStats(id);
   const available=Object.values(course.courses||{}).some(v=>v.trioRate!==null);
   if(!available)throw new Error('コース別成績の抽出に失敗');
   res.json({registration:id,season,courses:course.courses});
  }catch(e){res.status(502).json({error:String(e.message||e)})}
+});
+
+// v1.0.0.6: ① 全国2・3連対率のみ。期別データ欠損は空欄で明示。
+app.get('/api/racer-national-rates',async(req,res)=>{
+ const id=String(req.query.toban||'');
+ if(!/^\d{4}$/.test(id))return res.status(400).json({error:'登録番号が不正です'});
+ try{
+  const html=await officialFetch(`https://www.boatrace.jp/owpc/pc/data/racersearch/season?toban=${id}`);
+  const $=cheerio.load(html),txt=clean($('body').text());
+  const two=txt.match(/2連対率\s*([\d.]+|-)\s*%?/);
+  const three=txt.match(/3連対率\s*([\d.]+|-)\s*%?/);
+  if(!two||!three)throw new Error('期別成績を抽出できません');
+  const period=txt.match(/集計期間[：:]?\s*(\d{4}\/\d{2}\/\d{2})\s*[-～〜]\s*(\d{4}\/\d{2}\/\d{2})/);
+  res.json({registration:id,two:two[1]==='-'?null:Number(two[1]),three:three[1]==='-'?null:Number(three[1]),period:period?`${period[1]}-${period[2]}`:''});
+ }catch(e){res.status(502).json({error:String(e.message||e)})}
+});
+
+// v1.0.0.7 公式期別ファイルの検証済み固定長データを一括結合。
+// 注: 同梱fan2604.txtは2025/11/01〜2026/04/30の確定期別データであり、リアルタイム成績ではない。
+app.get('/api/racer-master-bulk', async (req,res)=>{
+ try{
+  const {createRequire}=await import('node:module');
+  const require=createRequire(import.meta.url);
+  const {parseFan}=require('./fan-parser.cjs');
+  const {fileURLToPath}=await import('node:url');
+  const {dirname,join}=await import('node:path');
+  const stats=parseFan(join(dirname(fileURLToPath(import.meta.url)),'fan2604.txt'));
+  // 既存の現役一覧取得APIをHTTPで呼ばず、同じルートを内部的に呼び出すことは避ける。
+  // クライアント側で現役一覧と登録番号をキーに突合する。
+  res.json({ok:true,source:'fan2604',periodFrom:'2025-11-01',periodTo:'2026-04-30',count:stats.size,stats:Object.fromEntries(stats)});
+ }catch(e){res.status(500).json({error:String(e.message||e)})}
 });

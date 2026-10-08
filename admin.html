@@ -12,7 +12,7 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 <body>
 <div class="wrap">
 <a class="homeLink" href="index.html">← メインに戻る</a>
-<div class="header"><h1>📦 競艇データ収集</h1><div class="version">VERSION v1.0.0.5</div></div>
+<div class="header"><h1>📦 競艇データ収集</h1><div class="version">VERSION v1.0.0.7</div></div>
 <div class="panel">
 <h2>取得期間</h2>
 <div class="grid">
@@ -21,17 +21,17 @@ body{margin:0;background:#07111f;color:#eef6ff;font-family:system-ui,-apple-syst
 </div>
 <div class="item">
  <div class="itemTitle">① 選手情報</div>
- <div class="fields">取得項目：選手名 ｜ 登録番号 ｜ 級別</div>
+ <div class="fields">取得項目：選手名 ｜ 登録番号 ｜ 級別 ｜ 全国勝率 ｜ 全国2連対率 ｜ 全国3連対率 ｜ 平均ST ｜ 出走回数 ｜ 1〜3着回数 ｜ F・L回数</div>
  <button id="playerBtn">① 選手情報を取得してExcel出力</button>
 </div>
 <div class="item">
- <div class="itemTitle">② 選手情報詳細</div>
- <div class="fields">登録番号｜全国2連対率・3連対率｜全国コース別成績（場別コース・当地は未対応）</div>
- <button id="playerDetailBtn" type="button">② 選手情報詳細を取得してExcel出力</button>
- <div id="detailStatus" class="status">取得対象：現在の公式期別成績・全国コース別成績。場別データは未対応。</div>
+ <div class="itemTitle">② コース別成績</div>
+ <div class="fields">登録番号｜全国1〜6コース別成績（場別コース・当地は未対応）</div>
+ <button id="playerDetailBtn" type="button">② コース別成績を取得してExcel出力</button>
+ <div id="detailStatus" class="status">取得対象：全国コース別成績。場別データは未対応。</div>
 </div>
 <div id="status" class="status">待機中</div><div class="progress"><div id="bar" class="bar"></div></div>
-<div class="note" style="margin-top:12px">①選手情報は期間指定を使用せず、現在の現役選手を公式レーサー検索から取得します。1選手＝1行で「選手名・登録番号・現在級別」だけを保存します。期間指定欄は今後追加する履歴データ取得用です。</div>
+<div class="note" style="margin-top:12px">①選手情報は期間指定を使用せず、現在の現役選手を公式レーサー検索から取得し、同梱の2026年後期期別成績（2025/11〜2026/04）を一括結合します。現在までのリアルタイム成績ではありません。期間指定欄は今後追加する履歴データ取得用です。</div>
 </div>
 </div>
 <script>
@@ -47,17 +47,23 @@ async function runPlayerMaster(){
   const data=await r.json();
   const rows=(data.racers||[]).sort((a,b)=>Number(a.登録番号)-Number(b.登録番号));
   if(!rows.length)throw new Error('現役選手を取得できませんでした');
-  $('bar').style.width='75%';$('status').textContent=`①選手情報：${rows.length}選手取得。Excel作成中…`;
-  const headers=['No.','選手名','登録番号','級別'];
-  const aoa=[headers,...rows.map((r,i)=>[i+1,r.選手名||'',r.登録番号||'',r.級別||''])];
+  $('status').textContent='公式期別一括データを読み込み中…';
+  const bulkResponse=await fetch('/api/racer-master-bulk');
+  if(!bulkResponse.ok)throw new Error(await bulkResponse.text());
+  const bulk=await bulkResponse.json();const stats=bulk.stats||{};
+  const headers=['No.','選手名','登録番号','現在級別','期別級別','全国勝率','全国2連対率','全国3連対率','平均ST','出走回数','1着回数','2着回数','3着回数','F回数','L回数'];
+  const aoa=[headers,...rows.map((r,i)=>{const v=stats[String(r.登録番号)]||{};return [i+1,r.選手名||'',r.登録番号||'',r.級別||'',v.grade??'',v.winRate??'',v.twoRate??'',v.threeRate??'',v.avgST??'',v.starts??'',v.first??'',v.second??'',v.third??'',v.F??'',v.L??'']})];
+  const matched=rows.filter(r=>stats[String(r.登録番号)]).length;
   const out=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!autofilter']={ref:`A1:D${Math.max(1,aoa.length)}`};ws['!freeze']={xSplit:0,ySplit:1};
-  ws['!cols']=[{wch:8},{wch:20},{wch:12},{wch:10}];
+  ws['!autofilter']={ref:`A1:O${aoa.length}`};ws['!cols']=[{wch:7},{wch:20},{wch:12},...Array.from({length:12},()=>({wch:15}))];
   XLSX.utils.book_append_sheet(out,ws,'①選手情報');
-  const spec=[['項目','内容'],['データ種別','現在の現役選手マスタ'],['取得項目','選手名／登録番号／現在級別'],['行単位','1選手＝1行'],['取得日時',new Date().toLocaleString('ja-JP')],['期間指定','①選手情報では使用しない'],['取得元','BOAT RACE公式 ボートレーサー検索'],['重複処理','登録番号で重複排除']];
-  XLSX.utils.book_append_sheet(out,XLSX.utils.aoa_to_sheet(spec),'項目説明');
+  const spec=[['項目','内容'],['現役名簿','取得時点の公式レーサー検索'],['期別成績','fan2604（2026年後期）'],['成績集計開始','2025-11-01'],['成績集計終了','2026-04-30'],['注意','現在級別と期別級別は異なる場合あり。期別成績は今日までの累計ではない。'],['取得日時',new Date().toLocaleString('ja-JP')],['現役選手数',rows.length],['期別突合成功',matched],['期別突合できず',rows.length-matched],['未突合の成績','空欄（0とは異なる）'],['L回数','L0とL1の合計（コースなし含む）'],['3連対率','1〜3着回数合計÷出走回数×100（小数1桁）']];
+  XLSX.utils.book_append_sheet(out,XLSX.utils.aoa_to_sheet(spec),'取得説明');
+  const missing=rows.filter(r=>!stats[String(r.登録番号)]).map(r=>[r.登録番号,r.選手名]);
+  if(missing.length)XLSX.utils.book_append_sheet(out,XLSX.utils.aoa_to_sheet([['登録番号','選手名'],...missing]),'期別未突合');
   XLSX.writeFile(out,'①選手情報_現役選手マスタ.xlsx');
-  $('bar').style.width='100%';$('status').textContent=`①選手情報 完了🔥 現役 ${rows.length}選手 ｜ 1選手1行`;
+  $('bar').style.width='100%';$('status').textContent=`①完了🔥 現役${rows.length}人｜期別突合${matched}人｜未突合${rows.length-matched}人（2026年後期の確定成績）`;
+
  } finally {$('playerBtn').disabled=false}
 }
 async function runDetails(){
